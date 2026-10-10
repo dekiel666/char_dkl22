@@ -1,0 +1,12 @@
+{
+  "name": "dkl_character-creator",
+  "private": true,
+  "scripts": {
+    "build": "python build.py",
+    "test": "node test_ui.js && node test_export.js"
+  },
+  "devDependencies": {
+    "exceljs": "^4.4.0",
+    "jsdom": "^26.1.0"
+  }
+}
