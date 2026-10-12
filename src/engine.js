@@ -378,6 +378,63 @@ function findGear(name) {
     || prefix
     || idx.find((g) => lower(g) === stripped || lower(g).replace(/s$/, "") === stripped);
 }
+
+const CUSTOM_WEAPON_KEYS = ["group", "reach", "range", "damage", "qualities"];
+const CUSTOM_ARMOUR_KEYS = ["locations", "ap", "penalty", "qualities"];
+
+function customItemFromKey(st, key) {
+  const m = key && key.match(/^custom:(\d+)$/);
+  if (!m) return null;
+  return (st.customItems || [])[+m[1]] || null;
+}
+
+function customItemFromDiscardedEntry(entry) {
+  const o = { name: entry.name, enc: entry.enc, category: entry.category || "trap" };
+  const keys = o.category === "weapon" ? CUSTOM_WEAPON_KEYS : o.category === "armour" ? CUSTOM_ARMOUR_KEYS : [];
+  keys.forEach((k) => { if (entry[k] != null && entry[k] !== "") o[k] = entry[k]; });
+  return o;
+}
+
+function copyCustomItemToDiscardedEntry(entry, item) {
+  if (!item) return;
+  entry.enc = item.enc;
+  entry.category = item.category || "trap";
+  const keys = entry.category === "weapon" ? CUSTOM_WEAPON_KEYS : entry.category === "armour" ? CUSTOM_ARMOUR_KEYS : [];
+  keys.forEach((k) => { if (item[k] != null && item[k] !== "") entry[k] = item[k]; });
+}
+
+function gearForInventoryItem(st, it) {
+  const custom = it.kind === "custom" ? customItemFromKey(st, it.key) : null;
+  const g = findGear(it.name);
+  if (!custom) return g;
+  const enc = custom.enc != null && custom.enc !== "" ? String(custom.enc) : (g?.enc ?? "0");
+  if (custom.category === "weapon") {
+    return {
+      name: custom.name,
+      table: "WEAPONS",
+      enc,
+      group: custom.group || g?.group || "",
+      reach: custom.reach || g?.reach || "",
+      range: custom.range || g?.range || "",
+      damage: custom.damage || g?.damage || "",
+      qualities: custom.qualities || g?.qualities || "",
+      twoHanded: !!g?.twoHanded,
+    };
+  }
+  if (custom.category === "armour") {
+    return {
+      name: custom.name,
+      table: "ARMOUR",
+      enc,
+      locations: custom.locations || g?.locations || "",
+      ap: custom.ap != null && custom.ap !== "" ? String(custom.ap) : (g?.ap || ""),
+      penalty: custom.penalty || g?.penalty || "",
+      qualities: custom.qualities || g?.qualities || "",
+    };
+  }
+  return g || { name: custom.name, enc };
+}
+
 const encOf = (name) => { const g = findGear(name); const v = g ? parseInt(g.enc, 10) : NaN; return Number.isFinite(v) ? v : 0; };
 
 function extraMoneyPennies(st) {
@@ -436,7 +493,7 @@ function discardGearByKey(st, key) {
   if (row.source) entry.source = row.source;
   if (row.kind === "start") entry.startKey = key;
   if (row.kind === "buy") { entry.price = row.price; entry.enc = row.enc; }
-  if (row.kind === "custom") { entry.enc = row.enc; entry.category = row.category; }
+  if (row.kind === "custom") copyCustomItemToDiscardedEntry(entry, customItemFromKey(st, key));
   if (loc && loc !== "Carried") entry.storageLoc = loc;
 
   st.removedGear = st.removedGear || [];
@@ -491,7 +548,7 @@ function restoreDiscardedGear(st, index) {
     }
   } else if (entry.kind === "custom") {
     st.customItems = st.customItems || [];
-    st.customItems.push({ name: entry.name, enc: entry.enc, category: entry.category || "trap" });
+    st.customItems.push(customItemFromDiscardedEntry(entry));
     const newKey = `custom:${st.customItems.length - 1}`;
     if (entry.storageLoc) {
       st.itemLoc = st.itemLoc || {};

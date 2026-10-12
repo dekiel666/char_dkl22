@@ -1,5 +1,5 @@
 /* global CHARS, SPECIES, derive, baseChars, creationSkillAdv, totalSkillAdv, allTalents,
-   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, inventoryItems, purseTotal, itemStorageLoc */
+   findCareer, findGear, gearForInventoryItem, magicProfile, BACKGROUND_QUESTIONS, inventoryItems, purseTotal, itemStorageLoc */
 
 /** Writable cell layout — mirrors wfrp_xlsx/build_xlsx.py */
 const XL = {
@@ -131,7 +131,7 @@ function inventoryRows(st) {
   const armour = [];
   const traps = [];
   items.forEach((it) => {
-    const g = findGear(it.name);
+    const g = gearForInventoryItem(st, it);
     const loc = itemStorageLoc(st, it.key);
     const row = { name: it.name, loc };
     const cat = it.category || gearCategory(g);

@@ -33,6 +33,7 @@ h3 { color: #5b1414; }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .cols > .box { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin: 8px 0; }
+.row.custom-gear-stats { margin-top: 0; padding: 8px 10px; background: #f8f4ee; border-radius: 6px; border: 1px solid #e0d6c8; }
 .row label.grow { flex: 1 1 160px; }
 .cash-log, .discard-log { margin: 6px 0; padding-left: 1.2em; }
 .container-box { margin-top: 10px; }
@@ -104,6 +105,9 @@ ul.req { list-style: none; padding-left: 4px; }
 .shop { max-height: 75vh; overflow: auto; }
 .shop input { width: 55%; }
 .xpbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.xp-log-cols h4 { margin: 0 0 4px; font-size: 13px; color: #5b1414; }
+.xp-gain { color: #1a6b1a; font-weight: 700; text-align: right; }
+.xp-spend { color: #8b2e2e; font-weight: 700; text-align: right; }
 .xpbar .right { margin-left: auto; }
 .big { font-size: 22px; }
 .toolbar { margin-bottom: 10px; }

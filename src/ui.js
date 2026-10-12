@@ -4,7 +4,7 @@
    findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, rollUniqueCareer, randomTalentFromRoll, doomingFromRoll, baseChars,
    charBonusLimit, manualCharRollsValid, characteristicRollPool, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
    resolvedCareerSkills, creationSkillAdv,
-   isCareerSkill, careerListsSkill, talentAdvanceCareerSkills, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
+   isCareerSkill, careerListsSkill, talentAdvanceCareerSkills, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, gearForInventoryItem, encOf,
    purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
    ownedStorageLocations, containerStorageLabel, migrateState, discardGearByKey, returnBuyItem, restoreDiscardedGear,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
@@ -533,6 +533,23 @@ function viewGear() {
         <td>${g.price != null ? btn("buyItem", "Buy", String(gi), "sm", g.price > money) : ""}</td></tr>`;
     }).join("");
   const discardLog = discardedGearPanel();
+  const customCat = S._customCat || "trap";
+  const weaponGroups = [...new Set(gearIndex().filter((g) => /WEAPON|AMMUNITION/i.test(g.table) && g.group).map((g) => g.group))].sort();
+  const armourLocPresets = [...new Set(gearIndex().filter((g) => g.table === "ARMOUR" && g.locations).map((g) => g.locations))].sort();
+  const customWeaponFields = customCat === "weapon" ? `<div class="row custom-gear-stats">
+          <label>Group <select data-bind="_customWeaponGroup">${opt("", "—")}${weaponGroups.map((g) => opt(g, g, S._customWeaponGroup === g)).join("")}</select></label>
+          <label>Reach <input data-bind="_customReach" value="${esc(S._customReach || "")}" placeholder="e.g. Average" size="10"></label>
+          <label>Range <input data-bind="_customRange" value="${esc(S._customRange || "")}" placeholder="e.g. 24" size="5"></label>
+          <label>Damage <input data-bind="_customDamage" value="${esc(S._customDamage || "")}" placeholder="e.g. SB+4" size="8"></label>
+          <label class="grow">Qualities <input data-bind="_customQualities" value="${esc(S._customQualities || "")}" placeholder="e.g. Pistol"></label>
+        </div>` : "";
+  const customArmourFields = customCat === "armour" ? `<div class="row custom-gear-stats">
+          <label>Locations <input data-bind="_customLocations" list="dl-armour-locs" value="${esc(S._customLocations || "")}" placeholder="e.g. Body, Arms"></label>
+          <datalist id="dl-armour-locs">${armourLocPresets.map((l) => `<option value="${esc(l)}">`).join("")}</datalist>
+          <label>AP <input data-bind="_customAp" data-num min="0" value="${esc(S._customAp ?? "")}" size="3"></label>
+          <label>Penalty <input data-bind="_customPenalty" value="${esc(S._customPenalty || "")}" placeholder="e.g. –10 Agi" size="10"></label>
+          <label class="grow">Qualities <input data-bind="_customQualities" value="${esc(S._customQualities || "")}" placeholder="e.g. Durable"></label>
+        </div>` : "";
   return `<h1>Gear Shop ${pg(296)}</h1>
     <div class="cols">
       <div class="box"><h3>Purse: <span class="${money < 0 ? "warn" : "ok"}">${fmtMoney(money)}</span></h3>
@@ -558,9 +575,10 @@ function viewGear() {
         <div class="row add-custom">
           <label class="grow">Name <input data-bind="_customName" value="${esc(S._customName || "")}" placeholder="e.g. Lucky charm"></label>
           <label>Enc <input data-bind="_customEnc" data-num min="0" value="${esc(S._customEnc ?? "")}" size="3"></label>
-          <label>Type <select data-bind="_customCat">${opt("trap", "Trapping", (S._customCat || "trap") === "trap")}${opt("weapon", "Weapon", S._customCat === "weapon")}${opt("armour", "Armour", S._customCat === "armour")}</select></label>
+          <label>Type <select data-bind="_customCat" data-rerender>${opt("trap", "Trapping", customCat === "trap")}${opt("weapon", "Weapon", customCat === "weapon")}${opt("armour", "Armour", customCat === "armour")}</select></label>
           ${btn("addCustomItem", "Add", "", "sm")}
         </div>
+        ${customWeaponFields}${customArmourFields}
         <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
         <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
         <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
@@ -608,14 +626,17 @@ function viewModifiers() {
 
 /* ---------- character sheet ---------- */
 function weaponRows(D) {
-  const names = inventoryItems(S).map((i) => i.name);
   const sb = D.chars.S.bonus || 0;
-  return names.map(findGear).filter((g) => g && g.damage && /WEAPONS|AMMUNITION/.test(g.table)).map((g) => {
-    const dmg = g.damage.replace(/\+?SB/, "").replace(/\s+/g, "");
-    const total = /SB/.test(g.damage) ? sb + (parseInt(dmg, 10) || 0) : g.damage;
+  return inventoryItems(S).map((it) => {
+    const g = gearForInventoryItem(S, it);
+    if (!g || !/WEAPON|AMMUNITION/i.test(g.table)) return null;
+    if (!g.damage && it.kind !== "custom") return null;
+    const dmg = (g.damage || "").replace(/\+?SB/i, "").replace(/\s+/g, "");
+    const total = g.damage && /SB/i.test(g.damage) ? sb + (parseInt(dmg, 10) || 0) : (g.damage || "—");
+    const dmgCell = g.damage ? `${esc(g.damage)} (${esc(total)})` : "—";
     return `<tr><td>${esc(g.name)}</td><td>${esc(g.group || "")}</td><td>${esc(g.enc)}</td><td>${esc(g.reach || g.range || "")}</td>
-      <td>${esc(g.damage)} (${esc(total)})</td><td class="small">${esc(g.qualities || "")}</td></tr>`;
-  }).join("");
+      <td>${dmgCell}</td><td class="small">${esc(g.qualities || "")}</td></tr>`;
+  }).filter(Boolean).join("");
 }
 const TRAPPING_LOC_ORDER = ["Worn", "Carried", "Backpack", "Pouch", "Sack", "Large Sack", "Sling Bag", "Saddlebags"];
 function trappingLocSortKey(loc) {
@@ -643,11 +664,13 @@ function armourByLocation() {
   const locs = { Head: 0, Arms: 0, Body: 0, Legs: 0 };
   const rows = [];
   inventoryItems(S).forEach((it) => {
-    const g = findGear(it.name);
-    if (!g || g.table !== "ARMOUR" || !g.ap) return;
+    const g = gearForInventoryItem(S, it);
+    if (!g || g.table !== "ARMOUR") return;
+    const ap = parseInt(g.ap, 10) || 0;
+    if (!ap && it.kind !== "custom") return;
     if (itemStorageLoc(S, it.key) !== "Worn") return;
     rows.push(g);
-    (g.locations || "").split(/,\s*/).forEach((l) => { if (locs[l] != null) locs[l] += parseInt(g.ap, 10) || 0; });
+    if (ap) (g.locations || "").split(/,\s*/).forEach((l) => { if (locs[l] != null) locs[l] += ap; });
   });
   return { locs, rows };
 }
@@ -841,8 +864,26 @@ function viewAdvance() {
       <div class="box"><h3>Career Talents</h3><table class="grid"><tr><th>Lvl</th><th>Talent</th><th>Owned</th><th></th></tr>${talentRows}</table></div>
       ${magic}
     </div>
-    <div class="box"><h3>Log ${btn("undo", "Undo last", "", "sm", !undoStack.length)}</h3>
-      <table class="grid small">${S.xp.log.slice().reverse().map((e) => `<tr><td>${esc(e.label)}</td><td>${e.cost > 0 ? "−" + e.cost : "+" + -e.cost}</td></tr>`).join("")}</table></div>`;
+    <div class="box"><h3>XP log ${btn("undo", "Undo last", "", "sm", !undoStack.length)}</h3>
+      ${xpLogTables()}</div>`;
+}
+
+function xpLogTables() {
+  const rev = S.xp.log.slice().reverse();
+  const awarded = rev.filter((e) => (e.award || 0) > 0);
+  const used = rev.filter((e) => (e.award || 0) <= 0);
+  const row = (cells) => `<tr>${cells}</tr>`;
+  const empty = `<tr><td colspan="2" class="muted small">—</td></tr>`;
+  const awardedRows = awarded.length
+    ? awarded.map((e) => row(`<td>${esc(e.label)}</td><td class="xp-gain">+${e.award}</td>`)).join("")
+    : empty;
+  const usedRows = used.length
+    ? used.map((e) => row(`<td>${esc(e.label)}</td><td class="xp-spend">${e.cost > 0 ? "−" + e.cost : "—"}</td>`)).join("")
+    : empty;
+  return `<div class="cols tight xp-log-cols">
+    <div><h4>Awarded</h4><table class="grid small"><tr><th>Note</th><th>XP</th></tr>${awardedRows}</table></div>
+    <div><h4>Spent / used</h4><table class="grid small"><tr><th>Note</th><th>XP</th></tr>${usedRows}</table></div>
+  </div>`;
 }
 
 /* ---------- side summary ---------- */
@@ -1042,9 +1083,26 @@ const ACTIONS = {
   addCustomItem: () => {
     const name = (S._customName || "").trim();
     if (!name) { alert("Enter a name for the custom item."); return; }
+    const category = S._customCat || "trap";
+    const item = { name, enc: S._customEnc == null || S._customEnc === "" ? 0 : +S._customEnc, category };
+    if (category === "weapon") {
+      if (S._customWeaponGroup) item.group = S._customWeaponGroup;
+      if ((S._customReach || "").trim()) item.reach = S._customReach.trim();
+      if ((S._customRange || "").trim()) item.range = S._customRange.trim();
+      if ((S._customDamage || "").trim()) item.damage = S._customDamage.trim();
+      if ((S._customQualities || "").trim()) item.qualities = S._customQualities.trim();
+    } else if (category === "armour") {
+      if ((S._customLocations || "").trim()) item.locations = S._customLocations.trim();
+      if (S._customAp != null && S._customAp !== "") item.ap = String(S._customAp);
+      if ((S._customPenalty || "").trim()) item.penalty = S._customPenalty.trim();
+      if ((S._customQualities || "").trim()) item.qualities = S._customQualities.trim();
+    }
     S.customItems = S.customItems || [];
-    S.customItems.push({ name, enc: S._customEnc == null || S._customEnc === "" ? 0 : +S._customEnc, category: S._customCat || "trap" });
+    S.customItems.push(item);
     S._customName = ""; S._customEnc = ""; S._customCat = "trap";
+    S._customWeaponGroup = ""; S._customReach = ""; S._customRange = "";
+    S._customDamage = ""; S._customQualities = "";
+    S._customLocations = ""; S._customAp = ""; S._customPenalty = "";
   },
   addMoney: () => {
     const gc = +S._addGC || 0; const ss = +S._addSS || 0; const dd = +S._addDD || 0;
