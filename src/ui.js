@@ -40,7 +40,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const opt = (v, label, sel) => `<option value="${esc(v)}"${sel ? " selected" : ""}>${esc(label ?? v)}</option>`;
 const pg = (p) => (p ? `<span class="pg">p.${p}</span>` : "");
 const btn = (act, label, arg = "", cls = "", dis = false) =>
-  `<button class="btn ${cls}" data-act="${act}" data-arg="${esc(arg)}"${dis ? " disabled" : ""}>${label}</button>`;
+  `<button type="button" class="btn ${cls}" data-act="${act}" data-arg="${esc(arg)}"${dis ? " disabled" : ""}>${label}</button>`;
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 function getPath(obj, path) { return path.split(".").reduce((o, k) => (o == null ? o : o[k]), obj); }
 function setPath(obj, path, val) {
@@ -117,7 +117,7 @@ function issues(st, key) {
     const sp = SPECIES[st.species];
     if (sp) {
       sp.talents.forEach((t, i) => { if (!parseChoice(t).fixed && !st.speciesTalentChoice[i]) out.push(`Choose: ${t}.`); });
-      if (st.randomTalents.filter((r) => r.name && isResolved(r.name)).length < sp.randomTalents) out.push(`Roll ${sp.randomTalents} Random Talent(s) and resolve specialisations.`);
+      if (st.randomTalents.filter((r) => r?.name && isResolved(r.name)).length < sp.randomTalents) out.push(`Roll ${sp.randomTalents} Random Talent(s) and resolve specialisations.`);
     }
     if (!st.careerTalent || !isResolved(st.careerTalent)) out.push("Choose one Talent from your Career's first level.");
     if (startingTrappings(st).some((t) => t.pending)) out.push("Resolve Trapping choices.");
@@ -979,6 +979,7 @@ const ACTIONS = {
   speciesTalent: (arg) => { const [i, n] = arg.split("|"); S.speciesTalentChoice[i] = n; },
   rollRandomTalent: (i) => {
     const slot = +i;
+    S.randomTalents = S.randomTalents || [];
     let r, name, guard = 0;
     do {
       r = d100();
@@ -993,9 +994,13 @@ const ACTIONS = {
       alert(`You cannot take ${el.value} again — only Talents marked as stackable (e.g. Strong Back) may be taken twice.`);
       return;
     }
+    S.randomTalents = S.randomTalents || [];
     S.randomTalents[+i] = { roll: null, name: el.value, base: el.value };
   },
-  clearRandomTalent: (i) => { S.randomTalents[+i] = null; },
+  clearRandomTalent: (i) => {
+    S.randomTalents = S.randomTalents || [];
+    S.randomTalents[+i] = null;
+  },
   rollDooming: () => {
     const r = d100();
     S.dooming = { roll: r, text: doomingFromRoll(r) };

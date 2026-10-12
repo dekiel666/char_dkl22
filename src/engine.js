@@ -185,7 +185,7 @@ function creationTalents(st) {
       const name = ch.fixed || st.speciesTalentChoice[i];
       if (name) list.push({ name, source: "Species" });
     });
-    st.randomTalents.forEach((rt) => rt.name && list.push({ name: rt.name, source: "Random" }));
+    (st.randomTalents || []).forEach((rt) => { if (rt?.name) list.push({ name: rt.name, source: "Random" }); });
   }
   if (st.careerTalent) list.push({ name: st.careerTalent, source: "Career" });
   return list;
