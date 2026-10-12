@@ -4,7 +4,7 @@
    findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, rollUniqueCareer, randomTalentFromRoll, doomingFromRoll, baseChars,
    charBonusLimit, manualCharRollsValid, characteristicRollPool, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
    resolvedCareerSkills, creationSkillAdv,
-   isCareerSkill, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
+   isCareerSkill, careerListsSkill, talentAdvanceCareerSkills, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
    purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
    ownedStorageLocations, containerStorageLabel, migrateState, discardGearByKey, returnBuyItem, restoreDiscardedGear,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
@@ -127,6 +127,7 @@ function issues(st, key) {
   }
   if (key === "magic") {
     const M = magicProfile(st, D);
+    if (!M.isCaster && !M.isPriest) return out;
     if (M.isCaster) M.casterReq.forEach(([l, ok]) => !ok && out.push(`Spellcaster missing: ${l}.`));
     if (M.isPriest) M.priestReq.forEach(([l, ok]) => !ok && out.push(`Priest missing: ${l}.`));
     if ((M.hasBless || M.hasInvoke) && !M.deity) out.push("Choose your deity.");
@@ -616,16 +617,62 @@ function weaponRows(D) {
       <td>${esc(g.damage)} (${esc(total)})</td><td class="small">${esc(g.qualities || "")}</td></tr>`;
   }).join("");
 }
+const TRAPPING_LOC_ORDER = ["Worn", "Carried", "Backpack", "Pouch", "Sack", "Large Sack", "Sling Bag", "Saddlebags"];
+function trappingLocSortKey(loc) {
+  const i = TRAPPING_LOC_ORDER.indexOf(loc);
+  return i >= 0 ? i : 100 + loc.charCodeAt(0);
+}
+function trappingsSheetBlock(st, items, total, encMax, containers) {
+  const sorted = [...items].sort((a, b) => {
+    const la = itemStorageLoc(st, a.key);
+    const lb = itemStorageLoc(st, b.key);
+    const d = trappingLocSortKey(la) - trappingLocSortKey(lb);
+    return d !== 0 ? d : a.name.localeCompare(b.name);
+  });
+  const rows = sorted.map((i) => `<tr><td>${esc(i.name)}</td><td>${itemEnc(i)}</td><td>${esc(itemStorageLoc(st, i.key))}</td></tr>`).join("");
+  const cont = containers.length
+    ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${esc(c.label)} ${c.used}/${c.capacity} Enc — ${c.items.map((it) => esc(it.name)).join(", ") || "empty"}`).join(" · ")}</p>`
+    : "";
+  return `<h3>Trappings</h3>
+    <p class="small"><b>Enc on person:</b> ${total} / ${encMax}</p>
+    <table class="grid trappings-sheet"><tr><th>Item</th><th>Enc</th><th>Location</th></tr>${rows}</table>
+    ${cont}
+    <p><b>Wealth:</b> ${fmtMoney(purse())}</p>`;
+}
 function armourByLocation() {
   const locs = { Head: 0, Arms: 0, Body: 0, Legs: 0 };
   const rows = [];
   inventoryItems(S).forEach((it) => {
     const g = findGear(it.name);
     if (!g || g.table !== "ARMOUR" || !g.ap) return;
+    if (itemStorageLoc(S, it.key) !== "Worn") return;
     rows.push(g);
     (g.locations || "").split(/,\s*/).forEach((l) => { if (locs[l] != null) locs[l] += parseInt(g.ap, 10) || 0; });
   });
   return { locs, rows };
+}
+function armourSilhouette(locs) {
+  const ap = (k) => locs[k] || 0;
+  const lbl = (k) => (ap(k) > 0 ? ap(k) : "—");
+  const worn = (k) => (ap(k) > 0 ? " armoured" : "");
+  return `<figure class="armour-figure-wrap" aria-label="Armour points by hit location">
+    <svg class="armour-figure" viewBox="0 0 120 200" role="img">
+      <title>Armour: Head ${lbl("Head")}, Arms ${lbl("Arms")}, Body ${lbl("Body")}, Legs ${lbl("Legs")}</title>
+      <ellipse class="zone head${worn("Head")}" cx="60" cy="22" rx="17" ry="19"/>
+      <text class="ap-label" x="60" y="26">${lbl("Head")}</text>
+      <rect class="zone body${worn("Body")}" x="38" y="44" width="44" height="54" rx="7"/>
+      <text class="ap-label" x="60" y="76">${lbl("Body")}</text>
+      <rect class="zone arms${worn("Arms")}" x="10" y="48" width="22" height="48" rx="6"/>
+      <rect class="zone arms${worn("Arms")}" x="88" y="48" width="22" height="48" rx="6"/>
+      <text class="ap-label" x="21" y="74">${lbl("Arms")}</text>
+      <text class="ap-label" x="99" y="74">${lbl("Arms")}</text>
+      <rect class="zone legs${worn("Legs")}" x="40" y="102" width="17" height="68" rx="5"/>
+      <rect class="zone legs${worn("Legs")}" x="63" y="102" width="17" height="68" rx="5"/>
+      <text class="ap-label" x="48" y="138">${lbl("Legs")}</text>
+      <text class="ap-label" x="71" y="138">${lbl("Legs")}</text>
+    </svg>
+    <figcaption class="small muted">AP on <b>Worn</b> armour · Head · Arms · Body · Legs</figcaption>
+  </figure>`;
 }
 function viewSheet() {
   const D = derive(S);
@@ -680,15 +727,13 @@ function viewSheet() {
     }).join("")}</table>
     <div class="cols tight">
       <div><h3>Weapons</h3><table class="grid"><tr><th>Name</th><th>Group</th><th>Enc</th><th>Reach/Range</th><th>Damage</th><th>Qualities</th></tr>${weaponRows(D)}</table></div>
-      <div><h3>Armour</h3><table class="grid"><tr><th>Name</th><th>Locations</th><th>AP</th><th>Qualities</th></tr>${armour.map((a) =>
+      <div><h3>Armour</h3><div class="armour-panel">${armourSilhouette(locs)}
+        <div class="armour-detail"><table class="grid"><tr><th>Name</th><th>Locations</th><th>AP</th><th>Qualities</th></tr>${armour.map((a) =>
         `<tr><td>${esc(a.name)}</td><td>${esc(a.locations)}</td><td>${esc(a.ap)}</td><td class="small">${esc(a.qualities || "")}</td></tr>`).join("")}</table>
-        <p>AP — Head ${locs.Head} · Arms ${locs.Arms} · Body ${locs.Body} · Legs ${locs.Legs}</p>
-        <p class="small">Hit locations: Head 01–09, Left Arm 10–24, Right Arm 25–44, Body 45–79, Left Leg 80–89, Right Leg 90–00.</p></div>
+        <p class="small">Only armour marked <b>Worn</b> counts toward the figure. Hit locations: Head 01–09, L Arm 10–24, R Arm 25–44, Body 45–79, L Leg 80–89, R Leg 90–00.</p></div></div></div>
     </div>
     <div class="cols tight">
-      <div><h3>Trappings</h3><p class="small">${items.map((i) => `${esc(i.name)} (${esc(itemStorageLoc(S, i.key))})`).join(", ")}</p>
-        ${containers.length ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${c.label} ${c.used}/${c.capacity}`).join(" · ")}</p>` : ""}
-        <p><b>Wealth:</b> ${fmtMoney(purse())}</p></div>
+      <div>${trappingsSheetBlock(S, items, total, D.enc, containers)}</div>
       <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p>
         ${S.dooming?.text ? `<p><b>Dooming:</b> <i>${esc(S.dooming.text)}</i>${S.dooming.custom ? " <span class='muted small'>(custom)</span>" : ""}${S.dooming.roll != null ? ` <span class="muted small">(rolled ${S.dooming.roll})</span>` : ""}</p>` : ""}</div>
     </div>
@@ -737,6 +782,13 @@ function viewAdvance() {
     return `<tr><td>${e.level}</td><td>${ctrl}</td><td>${adv || ""}</td><td>${val}</td><td>${cost}</td>
       <td>${btn("buySkill", "+5", name || "", "sm", !name || !isResolved(name) || cost > avail)}</td></tr>`;
   }).join("");
+  const talentSkillRows = talentAdvanceCareerSkills(S).filter((n) => !careerListsSkill(S, n)).map((name) => {
+    const adv = D.skills.find((s) => s.name === name)?.adv || 0;
+    const cost = advCost(SKILL_XP, adv);
+    const val = D.skills.find((s) => s.name === name)?.value ?? "";
+    return `<tr class="hl"><td>★</td><td>${esc(name)} <span class="muted small">(Artistic)</span></td><td>${adv || ""}</td><td>${val}</td><td>${cost}</td>
+      <td>${btn("buySkill", "+5", name, "sm", cost > avail)}</td></tr>`;
+  }).join("");
   const nonCareer = S.allowNonCareer ? `<p>Non-career Skill: <input list="dl-allskills" data-bind="_ncSkill" value="${esc(S._ncSkill || "")}" placeholder="e.g. Swim, Lore (Law)">
     <datalist id="dl-allskills">${DATA.skills.map((s) => opt(s.grouped ? `${s.name} ()` : s.name)).join("")}</datalist>
     ${btn("buyNonCareerSkill", "Buy (×2 cost)", "", "sm")}</p>
@@ -783,7 +835,7 @@ function viewAdvance() {
       Allow non-career purchases (double cost for Characteristics/Skills; normally via Training / Unusual Learning Endeavours)</label></div>
     <div class="cols">
       <div class="box"><h3>Characteristics</h3><table class="grid"><tr><th></th><th>Value</th><th>Adv</th><th>Cost</th><th></th></tr>${charRows}</table></div>
-      <div class="box"><h3>Career Skills (levels 1–${S.careerLevel})</h3><table class="grid"><tr><th>Lvl</th><th>Skill</th><th>Adv</th><th>Value</th><th>Cost</th><th></th></tr>${skillRows}</table>${nonCareer}</div>
+      <div class="box"><h3>Career Skills (levels 1–${S.careerLevel})</h3><table class="grid"><tr><th>Lvl</th><th>Skill</th><th>Adv</th><th>Value</th><th>Cost</th><th></th></tr>${skillRows}${talentSkillRows}</table>${nonCareer}</div>
     </div>
     <div class="cols">
       <div class="box"><h3>Career Talents</h3><table class="grid"><tr><th>Lvl</th><th>Talent</th><th>Owned</th><th></th></tr>${talentRows}</table></div>
@@ -809,10 +861,19 @@ function viewSummary() {
 /* ---------- render ---------- */
 const VIEWS = { species: viewSpecies, career: viewCareer, chars: viewChars, skills: viewSkills, talents: viewTalents,
   magic: viewMagic, gear: viewGear, background: viewBackground, sheet: viewSheet, advance: viewAdvance, modifiers: viewModifiers };
+function magicStepOptional(st) {
+  const M = magicProfile(st, derive(st));
+  return !M.isCaster && !M.isPriest;
+}
+function stepNavMark(k) {
+  if (["sheet", "advance", "gear", "modifiers"].includes(k)) return "";
+  if (k === "magic" && magicStepOptional(S)) return "";
+  const n = issues(S, k).length;
+  return n ? `<span class="badge">${n}</span>` : "<span class='done'>✔</span>";
+}
 function render() {
   const nav = STEPS.map(([k, l]) => {
-    const n = issues(S, k).length;
-    const mark = ["sheet", "advance", "gear", "modifiers"].includes(k) ? "" : n ? `<span class="badge">${n}</span>` : "<span class='done'>✔</span>";
+    const mark = stepNavMark(k);
     return `<button class="step ${k === step ? "active" : ""}" data-act="go" data-arg="${k}">${l} ${mark}</button>`;
   }).join("");
   const idx = STEPS.findIndex(([k]) => k === step);

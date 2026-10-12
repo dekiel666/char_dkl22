@@ -232,11 +232,23 @@ function skillMatchesEntry(name, entry) {
   if (ch.any) return skillBase(name) === ch.any;
   return false;
 }
-function isCareerSkill(st, name, level = st.careerLevel) {
+function talentAdvanceCareerSkills(st) {
+  const out = [];
+  if (hasTalent(st, "Artistic")) out.push("Art");
+  return out;
+}
+function careerListsSkill(st, name, level = st.careerLevel) {
   const c = findCareer(st.career);
   if (!c) return false;
   if (level === 1 && resolvedCareerSkills(st).some((s) => s.name === name)) return true;
-  return careerLevelSkills(c, level).some((s) => skillMatchesEntry(name, s.entry));
+  for (let lv = 1; lv <= level; lv++) {
+    if (careerLevelSkills(c, lv).some((s) => skillMatchesEntry(name, s.entry))) return true;
+  }
+  return false;
+}
+function isCareerSkill(st, name, level = st.careerLevel) {
+  if (talentAdvanceCareerSkills(st).includes(name)) return true;
+  return careerListsSkill(st, name, level);
 }
 
 /* ---------- derived ---------- */

@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(__dirname, "WFRP5e_Character_Creator.html
 const dataJson = html.match(/const DATA = (.*?);<\/script>/s)[1];
 const ctx = { console, Math, JSON };
 vm.createContext(ctx);
-vm.runInContext(`const DATA = ${dataJson};\n${src("rules.js")}\n${src("engine.js")}\nthis.api = {DATA, SPECIES, SPECIES_ORDER, CHARS, careerFromRoll, parseChoice, newState, derive, findCareer, findTalent, findSkill, parsePrice, fmtMoney, gearIndex, findGear, startingTrappings, speciesFromRoll, randomTalentFromRoll, doomingFromRoll, canAddCreationTalent, creationTalentDuplicateIssues};`, ctx);
+vm.runInContext(`const DATA = ${dataJson};\n${src("rules.js")}\n${src("engine.js")}\nthis.api = {DATA, SPECIES, SPECIES_ORDER, CHARS, careerFromRoll, parseChoice, newState, derive, findCareer, findTalent, findSkill, parsePrice, fmtMoney, gearIndex, findGear, startingTrappings, speciesFromRoll, randomTalentFromRoll, doomingFromRoll, canAddCreationTalent, creationTalentDuplicateIssues, isCareerSkill, allTalents, hasTalent};`, ctx);
 const A = ctx.api;
 let fails = 0;
 const check = (cond, msg) => { if (!cond) { fails++; console.log("FAIL", msg); } };
@@ -68,6 +68,10 @@ Object.assign(stack, { species: "human", career: "Boatman", careerTalent: "Stron
 check(A.canAddCreationTalent(stack, "Strong Back", { skipCareer: true }), "Strong Back second allowed");
 stack.randomTalents = [{ name: "Strong Back" }];
 check(!A.canAddCreationTalent(stack, "Strong Back"), "Strong Back capped at 2");
+const art = A.newState();
+Object.assign(art, { species: "human", career: "Boatman", careerTalent: "Strong Back" });
+art.boughtTalents = ["Artistic (Poetry)"];
+check(A.isCareerSkill(art, "Art"), "Artistic grants Art as career skill");
 console.log("starting trappings:", A.startingTrappings(S).map((t) => t.name).join(", "));
 const missingGear = A.startingTrappings(S).filter((t) => !A.findGear(t.name)).map((t) => t.name);
 console.log("trappings without shop entry:", missingGear.join(", "));
