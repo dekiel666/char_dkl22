@@ -52,6 +52,8 @@ table.trappings-sheet td:nth-child(3) { white-space: nowrap; }
 .armour-figure { width: 110px; max-width: 100%; height: auto; display: block; }
 .armour-figure .zone { fill: #ebe4d6; stroke: #5b1414; stroke-width: 1.4; }
 .armour-figure .zone.armoured { fill: #d4a84b; fill-opacity: 0.65; }
+.armour-figure .zone.shield { fill: #e8e0d0; stroke: #5b1414; stroke-width: 1.4; }
+.armour-figure .ap-label.shield-ap { font-size: 11px; }
 .armour-figure .ap-label { font-size: 12px; font-family: inherit; text-anchor: middle; dominant-baseline: middle; fill: #2a1810; font-weight: 700; pointer-events: none; }
 .armour-figure-wrap figcaption { margin-top: 4px; max-width: 120px; }
 .char-other input.num { width: 3.2em; text-align: center; }
@@ -62,7 +64,8 @@ label { display: block; margin: 4px 0; }
 label.wide, .wide { grid-column: 1 / -1; }
 label.chk { display: inline-flex; gap: 5px; align-items: center; margin-right: 12px; }
 input, select, textarea { font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 3px; background: #fff; color: var(--ink); max-width: 100%; }
-label > input:not([type=checkbox]):not([type=radio]), label > textarea { width: 100%; }
+label > input:not([type=checkbox]):not([type=radio]), label > textarea { width: 100%; box-sizing: border-box; }
+.box > textarea.wide { width: 100%; box-sizing: border-box; display: block; }
 .grid2 label > input { width: calc(100% - 80px); }
 input.num { width: 64px; }
 input.spec { width: 140px; padding: 2px 4px; }
@@ -127,6 +130,39 @@ hr { border: 0; border-top: 1px solid var(--line); }
 .sheet-stats > div { border: 1px solid var(--ink); padding: 4px 8px; text-align: center; }
 .sheet-stats .small { display: block; }
 .sheet table.sk td { padding: 1px 5px; }
+.sheet table.sk-compact { font-size: 0.92em; width: 100%; }
+.sheet table.sk-compact th, .sheet table.sk-compact td { padding: 1px 3px; }
+.sheet table.sk-compact th:nth-child(2), .sheet table.sk-compact th:nth-child(3),
+.sheet table.sk-compact td:nth-child(2), .sheet table.sk-compact td:nth-child(3) { text-align: center; width: 1.6em; }
+.sheet table.sk-compact th:nth-child(4), .sheet table.sk-compact td:nth-child(4) { text-align: center; width: 2em; }
+.sheet-skills-sub { margin: 6px 0 2px; font-size: 11px; font-variant: small-caps; color: #5b1414; letter-spacing: 0.5px; }
+.sheet-skills-cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 10px; align-items: start; }
+.sheet-talents-desc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 12px; align-items: start; }
+.sheet-talents-desc .talent-card { border-bottom: 1px solid #e0d6c8; padding: 2px 0 4px; break-inside: avoid; }
+.sheet-talents-desc .talent-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.sheet-talents-desc .talent-pg { color: var(--muted); flex-shrink: 0; font-size: 0.9em; }
+.sheet-talents-desc .talent-desc { margin: 2px 0 0; line-height: 1.3; }
+.sheet-full-block { width: 100%; margin: 10px 0; clear: both; }
+.sheet-ambitions p { margin: 4px 0; }
+.trappings-containers-art { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; padding: 8px 10px; background: #f8f4ee; border: 1px solid #e0d6c8; border-radius: 6px; }
+.container-card { display: flex; gap: 10px; align-items: flex-start; margin: 0; width: 100%; text-align: left; font-size: 11px; line-height: 1.3; }
+.container-art { flex: 0 0 auto; }
+.container-art svg { width: 44px; height: auto; display: block; }
+.container-card .container-stroke { fill: #ebe4d6; stroke: #5b1414; stroke-width: 1.3; stroke-linejoin: round; }
+.container-card .container-fill { fill: #d4a84b; fill-opacity: 0.55; stroke: none; }
+.container-card.container-over .container-fill { fill: #c45a3a; fill-opacity: 0.5; }
+.container-caption { flex: 1 1 auto; min-width: 0; margin: 0; }
+.container-caption .container-cap { font-weight: 600; white-space: nowrap; }
+.container-items-list { margin: 4px 0 0; padding-left: 1.2em; }
+.container-items-list li { margin: 1px 0; word-break: break-word; }
+.container-items-empty { margin: 4px 0 0; }
+.trappings-sheet-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; align-items: start; }
+.trappings-sheet-cols .trappings-sheet { width: 100%; }
+.sheet-page-2 { margin-top: 12px; }
+.sheet .xp-line { font-size: 0.85em; line-height: 1.2; }
+.sheet-combat-cols .armour-figure { width: 88px; }
+.sheet table.sheet-spells { font-size: 0.9em; }
+.sheet table.sheet-spells td:last-child { font-size: 0.88em; }
 tr.career-sk td:first-child { font-weight: bold; }
 tr.career-sk { background: #f9efcf; }
 
@@ -135,17 +171,49 @@ tr.career-sk { background: #f9efcf; }
   nav { flex-direction: row; flex-wrap: wrap; position: static; }
   aside { position: static; }
   .cols { grid-template-columns: 1fr; }
+  .sheet-skills-cols { grid-template-columns: 1fr 1fr; }
+  .sheet-talents-desc { grid-template-columns: 1fr; }
+  .trappings-sheet-cols { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .sheet-skills-cols { grid-template-columns: 1fr; }
 }
 @media print {
-  @page { size: A4; margin: 10mm; }
-  body { background: #fff; font-size: 11px; }
-  .no-print, header, nav, aside, footer, .pager, .issues { display: none !important; }
+  @page { size: A4; margin: 7mm 8mm; }
+  body { background: #fff; font-size: 9.5px; line-height: 1.2; }
+  .no-print, header, nav, aside, footer, .pager, .issues, .sheet-hint { display: none !important; }
   .layout { display: block; padding: 0; }
   main { box-shadow: none; padding: 0; background: #fff; }
-  .sheet { font-size: 10.5px; }
-  .sheet h3 { break-after: avoid; }
+  h1 { display: none; }
+  .sheet { font-size: 9px; color: #000; }
+  .sheet h3 { break-after: avoid; margin: 5px 0 2px; font-size: 10px; border-bottom-color: #999; }
+  .sheet-head { padding: 5px 6px; gap: 4px 8px; border-color: #000; }
+  .sheet-head .big { font-size: 14px; }
+  .sheet-stats { gap: 3px; margin: 4px 0; }
+  .sheet-stats > div { padding: 2px 4px; }
+  .sheet-stats .big { font-size: 12px; }
+  .sheet table.chars { margin: 4px 0; font-size: 9px; }
+  .sheet table.grid { font-size: 8.5px; }
+  .sheet table.sk-compact { font-size: 8px; }
+  .sheet-skills-sub { margin: 3px 0 1px; font-size: 9px; }
+  .sheet-skills-cols { gap: 4px 6px; }
+  .sheet-talents-desc { gap: 3px 8px; font-size: 7.5px; }
+  .sheet-talents-desc .talent-desc { font-size: 7px; line-height: 1.22; }
+  .sheet-page-1 { break-after: page; page-break-after: always; }
+  .sheet-page-2 { margin-top: 0; break-before: auto; }
+  .sheet-page-2 .cols.tight { gap: 6px; }
+  .trappings-containers-art { padding: 4px 6px; gap: 4px; background: #f5f5f5; }
+  .container-card { font-size: 8px; }
+  .container-art svg { width: 32px; }
+  .trappings-sheet-cols { gap: 6px 8px; }
+  .sheet-combat-cols h3 { margin-top: 4px; }
+  .armour-panel { gap: 6px; }
+  .armour-figure { width: 72px !important; }
+  .armour-figure-wrap figcaption { display: none; }
+  .sheet-notes { font-size: 8px; max-height: none; }
   table { break-inside: auto; }
   tr { break-inside: avoid; }
+  .sheet-talents-desc .talent-card { border-bottom-color: #ccc; }
   tr.career-sk, tr.hl { background: #eee !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   td.lv1, td.lv2, td.lv3, td.lv4 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }

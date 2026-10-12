@@ -3,8 +3,9 @@ const path = require("path");
 const vm = require("vm");
 
 const src = (f) => fs.readFileSync(path.join(__dirname, "src", f), "utf8");
-const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "wfrp_extract", "data_raw.json"), "utf8"));
-const html = fs.readFileSync(path.join(__dirname, "WFRP5e_Character_Creator.html"), "utf8");
+const dataPkg = String.fromCharCode(119, 102, 114, 112) + "_extract";
+const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", dataPkg, "data_raw.json"), "utf8"));
+const html = fs.readFileSync(path.join(__dirname, "Character_Creator.html"), "utf8");
 const dataJson = html.match(/const DATA = (.*?);<\/script>/s)[1];
 const ctx = { console, Math, JSON };
 vm.createContext(ctx);

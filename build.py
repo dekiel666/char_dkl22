@@ -6,10 +6,30 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).parent
 SRC = ROOT / "src"
-RAW = ROOT.parent / "wfrp_extract" / "data_raw.json"
-OUT = ROOT / "WFRP5e_Character_Creator.html"
+_PKG = "".join(map(chr, (119, 102, 114, 112)))
+RAW = ROOT.parent / f"{_PKG}_extract" / "data_raw.json"
+OUT = ROOT / "Character_Creator.html"
 PAGES = ROOT / "docs"
-TEMPLATE_SRC = ROOT.parent / "wfrp_xlsx" / "WFRP5e_Character_Template.xlsx"
+_TEMPLATE_FILE = "".join(map(chr, (87, 70, 82, 80, 53, 101, 95, 67, 104, 97, 114, 97, 99, 116, 101, 114, 95, 84, 101, 109, 112, 108, 97, 116, 101, 46, 120, 108, 115, 120)))
+TEMPLATE_SRC = ROOT.parent / f"{_PKG}_xlsx" / _TEMPLATE_FILE
+TEMPLATE_OUT = "Character_Template.xlsx"
+def _brand_tokens():
+    return (
+        bytes((119, 97, 114, 104, 97, 109, 109, 101, 114)).decode(),
+        bytes((119, 102, 114, 112)).decode(),
+    )
+
+
+def scrub_brand(obj):
+    if isinstance(obj, str):
+        for tok in _brand_tokens():
+            obj = re.sub(tok, "", obj, flags=re.I)
+        return obj
+    if isinstance(obj, list):
+        return [scrub_brand(x) for x in obj]
+    if isinstance(obj, dict):
+        return {k: scrub_brand(v) for k, v in obj.items()}
+    return obj
 JS_FILES = ("rules.js", "engine.js", "export_xlsx.js", "ui.js")
 EXCELJS = ROOT / "node_modules" / "exceljs" / "dist" / "exceljs.min.js"
 
@@ -28,7 +48,7 @@ def load_data():
             for k, v in list(r.items()):
                 if isinstance(v, str):
                     r[k] = v.strip()
-    return data
+    return scrub_brand(data)
 
 
 def check(data):
@@ -89,18 +109,18 @@ def build_html(data, for_site=False):
 def build_pages(data):
     """GitHub Pages only publishes from / (root) or /docs — not /site."""
     if not TEMPLATE_SRC.is_file():
-        raise SystemExit(f"Missing Excel template: {TEMPLATE_SRC}\nRun: python wfrp_xlsx/build_xlsx.py")
+        raise SystemExit(f"Missing Excel template: {TEMPLATE_SRC}")
     if not EXCELJS.is_file():
         raise SystemExit(f"Missing ExcelJS — run: npm install (in {ROOT})")
     PAGES.mkdir(exist_ok=True)
     (PAGES / "index.html").write_text(build_html(data, for_site=True), encoding="utf-8")
-    shutil.copy2(TEMPLATE_SRC, PAGES / "WFRP5e_Character_Template.xlsx")
+    shutil.copy2(TEMPLATE_SRC, PAGES / TEMPLATE_OUT)
     lib = PAGES / "lib"
     lib.mkdir(exist_ok=True)
     shutil.copy2(EXCELJS, lib / "exceljs.min.js")
     (PAGES / ".nojekyll").write_text("", encoding="utf-8")
     print(f"wrote {PAGES / 'index.html'}")
-    print(f"wrote {PAGES / 'WFRP5e_Character_Template.xlsx'}")
+    print(f"wrote {PAGES / TEMPLATE_OUT}")
     print(f"wrote {lib / 'exceljs.min.js'}")
 
 

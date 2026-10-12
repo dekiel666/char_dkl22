@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { JSDOM, VirtualConsole } = require("jsdom");
 
-const html = fs.readFileSync(path.join(__dirname, "WFRP5e_Character_Creator.html"), "utf8");
+const html = fs.readFileSync(path.join(__dirname, "Character_Creator.html"), "utf8");
 const failures = [];
 let runs = 0;
 
@@ -162,7 +162,7 @@ function createCharacter(species, career, opts = {}) {
     const advText = t.q("main").textContent;
     if (/undefined|NaN/.test(advText)) fail("advance view contains undefined/NaN: " + (advText.match(/.{40}(undefined|NaN).{20}/) || [""])[0]);
     // json round trip via localStorage reload
-    const saved = ctx.w.localStorage.getItem("wfrp5e-character-v1");
+    const saved = ctx.w.localStorage.getItem("dkl-character-v1");
     if (!saved || JSON.parse(saved).career !== t.S().career) fail("autosave mismatch");
   } catch (e) {
     fail("EXCEPTION " + e.stack.split("\n").slice(0, 3).join(" / "));

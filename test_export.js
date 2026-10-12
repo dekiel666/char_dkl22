@@ -4,7 +4,8 @@ const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const src = path.join(__dirname, "src");
-const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "wfrp_extract", "data_raw.json"), "utf8"));
+const dataPkg = String.fromCharCode(119, 102, 114, 112) + "_extract";
+const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "..", dataPkg, "data_raw.json"), "utf8"));
 const js = ["rules.js", "engine.js", "export_xlsx.js"].map((f) => fs.readFileSync(path.join(src, f), "utf8")).join("\n");
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });

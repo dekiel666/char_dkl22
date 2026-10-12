@@ -360,9 +360,9 @@ function gearIndex() {
   }
   return GEAR_INDEX;
 }
-function findGear(name) {
+function findGear(name, tableTitle) {
   const n = name.toLowerCase().replace(/\s*\(.*\)$/, "").trim();
-  const idx = gearIndex();
+  const idx = tableTitle ? gearIndex().filter((g) => g.table === tableTitle) : gearIndex();
   const inner = (name.match(/\(([^)]+)\)\s*$/) || [])[1];
   const lower = (g) => g.name.toLowerCase();
   const comma = inner ? `${n}, ${inner.toLowerCase()}` : null;
@@ -433,6 +433,37 @@ function gearForInventoryItem(st, it) {
     };
   }
   return g || { name: custom.name, enc };
+}
+
+function isShieldGear(g) {
+  if (!g) return false;
+  return g.group === "SHIELDS" || /\bshield\b/i.test(String(g.qualities || ""));
+}
+
+function gearForArmourSheet(st, it) {
+  if (it.kind === "custom") {
+    const g = gearForInventoryItem(st, it);
+    return g?.table === "ARMOUR" ? g : null;
+  }
+  return findGear(it.name, "ARMOUR");
+}
+
+function itemIsWeapon(st, it) {
+  if (it.kind === "custom") {
+    if (it.category === "weapon") return true;
+    if (it.category === "armour") return isShieldGear(gearForInventoryItem(st, it));
+    return false;
+  }
+  const g = findGear(it.name);
+  if (g && /WEAPON|AMMUNITION/i.test(g.table)) return true;
+  const armour = findGear(it.name, "ARMOUR");
+  return isShieldGear(armour);
+}
+
+function armourVisibleOnSheet(st, it, g) {
+  const loc = itemStorageLoc(st, it.key);
+  if (isShieldGear(g)) return loc === "Carried";
+  return loc === "Worn";
 }
 
 const encOf = (name) => { const g = findGear(name); const v = g ? parseInt(g.enc, 10) : NaN; return Number.isFinite(v) ? v : 0; };
@@ -644,6 +675,9 @@ function migrateState(st) {
       if (on && !st.itemLoc[k]) st.itemLoc[k] = "Worn";
     });
   }
+  inventoryItems(st).forEach((it) => {
+    if (itemIsWeapon(st, it) && itemStorageLoc(st, it.key) === "Worn") st.itemLoc[it.key] = "Carried";
+  });
 }
 
 function startingTrappings(st) {

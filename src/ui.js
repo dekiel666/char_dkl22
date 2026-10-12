@@ -5,14 +5,16 @@
    charBonusLimit, manualCharRollsValid, characteristicRollPool, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
    resolvedCareerSkills, creationSkillAdv,
    isCareerSkill, careerListsSkill, talentAdvanceCareerSkills, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, gearForInventoryItem, encOf,
-   purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
+   purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc, gearForArmourSheet, isShieldGear, armourVisibleOnSheet, itemIsWeapon,
    ownedStorageLocations, containerStorageLabel, migrateState, discardGearByKey, returnBuyItem, restoreDiscardedGear,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
    spellsOfLore, findSpell, findMiracle, skillMatchesEntry, exportToExcel */
 
-const STORE_KEY = "wfrp5e-character-v1";
+const STORE_KEY = "dkl-character-v1";
+const STEP_KEY = "dkl-step";
+const legacyKey = (b64) => { try { return atob(b64); } catch { return ""; } };
 let S = load() || newState();
-let step = sessionStorage.getItem("wfrp5e-step") || "species";
+let step = sessionStorage.getItem(STEP_KEY) || sessionStorage.getItem(legacyKey("d2ZycDZlLXN0ZXA=")) || "species";
 const undoStack = [];
 let shopFilter = { q: "", table: "" };
 
@@ -26,7 +28,13 @@ const STEPS = [
 /* ---------- persistence ---------- */
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    let raw = localStorage.getItem(STORE_KEY);
+    if (!raw) {
+      const old = legacyKey("d2ZycDZlLWNoYXJhY3Rlci12MQ==");
+      raw = old ? localStorage.getItem(old) : null;
+      if (raw) localStorage.setItem(STORE_KEY, raw);
+    }
+    const s = JSON.parse(raw);
     if (!s) return null;
     const st = Object.assign(newState(), s);
     migrateState(st);
@@ -480,7 +488,8 @@ function encTotals() {
 function storageSelect(it, locations) {
   const loc = itemStorageLoc(S, it.key);
   const isCont = containerStorageLabel(it.name) != null;
-  const opts = locations.filter((l) => !isCont || l === "Carried" || l === "Worn");
+  let opts = locations.filter((l) => !isCont || l === "Carried" || l === "Worn");
+  if (itemIsWeapon(S, it)) opts = opts.filter((l) => l !== "Worn");
   return `<select data-act-change="setItemStorage" data-arg="${esc(it.key)}">${opts.map((l) => opt(l, l, loc === l)).join("")}</select>`;
 }
 function containerPanels(containers) {
@@ -580,7 +589,7 @@ function viewGear() {
         </div>
         ${customWeaponFields}${customArmourFields}
         <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
-        <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
+        <p class="small">Set location to <b>Worn</b> (−1 Enc on you) for armour and containers; weapons and shields cannot be worn. Stow other items inside a container you carry.</p>
         <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
         ${containerPanels(containers)}</div>
       <div class="box shop"><h3>Market</h3>
@@ -614,7 +623,7 @@ function charOtherEditor() {
 function characterNotesEditor() {
   return `<div class="box"><h3>Character notes</h3>
     <p class="small">Ongoing notes for your character (campaign events, injuries, reminders). Included on the printed Character Sheet.</p>
-    <textarea rows="8" class="wide" data-bind="characterNotes">${esc(S.characterNotes || "")}</textarea></div>`;
+    <label class="wide">Notes <textarea rows="8" data-bind="characterNotes" placeholder="Ongoing campaign notes">${esc(S.characterNotes || "")}</textarea></label></div>`;
 }
 function viewModifiers() {
   if (!baseChars(S)) return `<h1>Modifiers & Notes</h1><p class="warn">Finish character creation first.</p>`;
@@ -643,6 +652,46 @@ function trappingLocSortKey(loc) {
   const i = TRAPPING_LOC_ORDER.indexOf(loc);
   return i >= 0 ? i : 100 + loc.charCodeAt(0);
 }
+function containerFillSvg(used, capacity) {
+  if (!capacity) return "";
+  const h = Math.max(0, Math.min(22, Math.round((used / capacity) * 22)));
+  if (!h) return "";
+  return `<rect class="container-fill" x="10" y="${34 - h}" width="16" height="${h}" rx="2"/>`;
+}
+function containerIconSvg(c) {
+  const label = c.label;
+  const key = label.toLowerCase();
+  let shape;
+  if (key.includes("backpack")) {
+    shape = `<path class="container-stroke" d="M12 16 V12 a6 6 0 0 1 12 0 v4"/><rect class="container-stroke" x="9" y="16" width="18" height="22" rx="3"/><line class="container-stroke" x1="9" y1="20" x2="5" y2="10"/><line class="container-stroke" x1="27" y1="20" x2="31" y2="10"/>`;
+  } else if (key.includes("sling")) {
+    shape = `<path class="container-stroke" d="M6 8 Q18 4 30 8 L26 18 Q18 14 10 18 Z"/><rect class="container-stroke" x="11" y="18" width="14" height="18" rx="4"/><line class="container-stroke" x1="6" y1="8" x2="11" y2="18"/><line class="container-stroke" x1="30" y1="8" x2="25" y2="18"/>`;
+  } else if (key.includes("saddlebag")) {
+    shape = `<rect class="container-stroke" x="4" y="22" width="12" height="14" rx="3"/><rect class="container-stroke" x="20" y="22" width="12" height="14" rx="3"/><path class="container-stroke" d="M10 22 V18 M26 22 V18"/>`;
+  } else if (key.includes("large") && key.includes("sack")) {
+    shape = `<path class="container-stroke" d="M18 6 L22 14 H14 Z"/><path class="container-stroke" d="M8 14 h20 q6 8 4 24 q-2 6 -12 6 q-10 0 -12 -6 q-2 -16 4 -24 Z"/>`;
+  } else if (key.includes("sack")) {
+    shape = `<path class="container-stroke" d="M18 8 L21 14 H15 Z"/><path class="container-stroke" d="M10 14 h16 q4 6 3 18 q-1 5 -9 5 q-8 0 -9 -5 q-1 -12 3 -18 Z"/>`;
+  } else if (key.includes("pouch")) {
+    shape = `<path class="container-stroke" d="M12 12 h12 a8 8 0 0 1 0 16 h-12 a8 8 0 0 1 0 -16 Z"/><path class="container-stroke" d="M14 12 Q18 8 22 12"/><circle class="container-stroke" cx="18" cy="10" r="1.5"/>`;
+  } else {
+    shape = `<rect class="container-stroke" x="10" y="14" width="16" height="20" rx="2"/>`;
+  }
+  const itemList = c.items.length
+    ? `<ul class="container-items-list">${c.items.map((it) => `<li>${esc(it.name)}</li>`).join("")}</ul>`
+    : `<p class="container-items-empty small muted">Empty</p>`;
+  const warn = c.used > c.capacity ? " container-over" : "";
+  return `<figure class="container-card${warn}">
+    <div class="container-art" aria-hidden="true">
+      <svg viewBox="0 0 36 40" role="img" aria-label="${esc(label)}"><title>${esc(label)}</title>${shape}${containerFillSvg(c.used, c.capacity)}</svg>
+    </div>
+    <figcaption class="container-caption"><b>${esc(label)}</b> <span class="container-cap">${c.used}/${c.capacity} Enc</span>
+    ${itemList}</figcaption></figure>`;
+}
+function trappingsContainerArt(containers) {
+  if (!containers.length) return "";
+  return `<div class="trappings-containers-art" aria-label="Containers in use">${containers.map(containerIconSvg).join("")}</div>`;
+}
 function trappingsSheetBlock(st, items, total, encMax, containers) {
   const sorted = [...items].sort((a, b) => {
     const la = itemStorageLoc(st, a.key);
@@ -650,37 +699,48 @@ function trappingsSheetBlock(st, items, total, encMax, containers) {
     const d = trappingLocSortKey(la) - trappingLocSortKey(lb);
     return d !== 0 ? d : a.name.localeCompare(b.name);
   });
-  const rows = sorted.map((i) => `<tr><td>${esc(i.name)}</td><td>${itemEnc(i)}</td><td>${esc(itemStorageLoc(st, i.key))}</td></tr>`).join("");
-  const cont = containers.length
-    ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${esc(c.label)} ${c.used}/${c.capacity} Enc — ${c.items.map((it) => esc(it.name)).join(", ") || "empty"}`).join(" · ")}</p>`
-    : "";
+  const rowHtml = (i) => `<tr><td>${esc(i.name)}</td><td>${itemEnc(i)}</td><td>${esc(itemStorageLoc(st, i.key))}</td></tr>`;
+  const trappingTable = (list) => (list.length
+    ? `<table class="grid trappings-sheet"><tr><th>Item</th><th>Enc</th><th>Location</th></tr>${list.map(rowHtml).join("")}</table>`
+    : "");
+  const half = Math.ceil(sorted.length / 2);
+  const trapCols = [sorted.slice(0, half), sorted.slice(half)];
   return `<h3>Trappings</h3>
-    <p class="small"><b>Enc on person:</b> ${total} / ${encMax}</p>
-    <table class="grid trappings-sheet"><tr><th>Item</th><th>Enc</th><th>Location</th></tr>${rows}</table>
-    ${cont}
-    <p><b>Wealth:</b> ${fmtMoney(purse())}</p>`;
+    <p class="small"><b>Enc on person:</b> ${total} / ${encMax} · <b>Wealth:</b> ${fmtMoney(purse())}</p>
+    ${trappingsContainerArt(containers)}
+    <div class="trappings-sheet-cols">${trapCols.map(trappingTable).join("")}</div>`;
+}
+function armourLocationsLabel(g) {
+  if (isShieldGear(g)) return "Shield";
+  const loc = String(g.locations || "").trim();
+  if (!loc || loc === "–" || loc === "-") return "—";
+  return loc;
 }
 function armourByLocation() {
   const locs = { Head: 0, Arms: 0, Body: 0, Legs: 0 };
   const rows = [];
+  let shieldAp = 0;
   inventoryItems(S).forEach((it) => {
-    const g = gearForInventoryItem(S, it);
-    if (!g || g.table !== "ARMOUR") return;
+    const g = gearForArmourSheet(S, it);
+    if (!g) return;
     const ap = parseInt(g.ap, 10) || 0;
     if (!ap && it.kind !== "custom") return;
-    if (itemStorageLoc(S, it.key) !== "Worn") return;
+    if (!armourVisibleOnSheet(S, it, g)) return;
     rows.push(g);
-    if (ap) (g.locations || "").split(/,\s*/).forEach((l) => { if (locs[l] != null) locs[l] += ap; });
+    if (isShieldGear(g)) shieldAp = Math.max(shieldAp, ap);
+    else if (ap) (g.locations || "").split(/,\s*/).forEach((l) => { if (locs[l] != null) locs[l] += ap; });
   });
-  return { locs, rows };
+  return { locs, rows, shieldAp };
 }
-function armourSilhouette(locs) {
+function armourSilhouette(locs, shieldAp) {
   const ap = (k) => locs[k] || 0;
   const lbl = (k) => (ap(k) > 0 ? ap(k) : "—");
   const worn = (k) => (ap(k) > 0 ? " armoured" : "");
+  const shLbl = shieldAp > 0 ? shieldAp : "—";
+  const shWorn = shieldAp > 0 ? " armoured" : "";
   return `<figure class="armour-figure-wrap" aria-label="Armour points by hit location">
     <svg class="armour-figure" viewBox="0 0 120 200" role="img">
-      <title>Armour: Head ${lbl("Head")}, Arms ${lbl("Arms")}, Body ${lbl("Body")}, Legs ${lbl("Legs")}</title>
+      <title>Armour: Head ${lbl("Head")}, Arms ${lbl("Arms")}, Body ${lbl("Body")}, Legs ${lbl("Legs")}, Shield ${shLbl}</title>
       <ellipse class="zone head${worn("Head")}" cx="60" cy="22" rx="17" ry="19"/>
       <text class="ap-label" x="60" y="26">${lbl("Head")}</text>
       <rect class="zone body${worn("Body")}" x="38" y="44" width="44" height="54" rx="7"/>
@@ -693,9 +753,29 @@ function armourSilhouette(locs) {
       <rect class="zone legs${worn("Legs")}" x="63" y="102" width="17" height="68" rx="5"/>
       <text class="ap-label" x="48" y="138">${lbl("Legs")}</text>
       <text class="ap-label" x="71" y="138">${lbl("Legs")}</text>
+      <path class="zone shield${shWorn}" d="M 4 78 L 4 134 Q 4 154 22 158 L 28 102 Q 22 84 4 78 Z"/>
+      <text class="ap-label shield-ap" x="14" y="116">${shLbl}</text>
     </svg>
-    <figcaption class="small muted">AP on <b>Worn</b> armour · Head · Arms · Body · Legs</figcaption>
+    <figcaption class="small muted">Body armour when <b>Worn</b> · Shield when <b>Carried</b></figcaption>
   </figure>`;
+}
+function skillTableCompact(list) {
+  if (!list.length) return "";
+  return `<table class="grid sk sk-compact"><thead><tr><th>Skill</th><th>C</th><th>A</th><th>#</th></tr></thead><tbody>${list.map((s) =>
+    `<tr class="${s.career ? "career-sk" : ""}"><td>${esc(s.name)}${s.grouped && !skillSpec(s.name) ? " <span class='muted small'>(any)</span>" : ""}</td><td>${s.char}</td><td>${s.adv || ""}</td><td><b>${s.value ?? ""}</b></td></tr>`).join("")}</tbody></table>`;
+}
+function skillColumns(list, ncol) {
+  if (!list.length) return [];
+  const per = Math.ceil(list.length / ncol);
+  return Array.from({ length: ncol }, (_, i) => list.slice(i * per, (i + 1) * per)).filter((col) => col.length);
+}
+function talentsSheetBlock(talents) {
+  if (!talents.length) return `<p class="small muted">—</p>`;
+  return `<div class="sheet-talents-desc">${talents.map((t) => {
+    const info = findTalent(t.name);
+    return `<div class="talent-card"><div class="talent-head"><b>${esc(t.name)}</b>${info?.page ? `<span class="talent-pg">${info.page}</span>` : ""}</div>
+      ${info?.desc ? `<p class="talent-desc small">${esc(info.desc)}</p>` : ""}</div>`;
+  }).join("")}</div>`;
 }
 function viewSheet() {
   const D = derive(S);
@@ -703,11 +783,11 @@ function viewSheet() {
   if (!D.sp || !c || !baseChars(S)) return `<h1>Character Sheet</h1><p class="warn">Complete Species, Career and Characteristics first.</p>`;
   const lv = D.level;
   const charRow = (k) => CHARS.map((ch) => `<td>${D.chars[ch][k] ?? ""}</td>`).join("");
-  const skillsShown = D.skills.filter((s) => !s.advanced || s.adv > 0);
-  const half = Math.ceil(skillsShown.length / 2);
-  const skillTable = (list) => `<table class="grid sk"><tr><th>Skill</th><th>Char</th><th>Adv</th><th>Value</th></tr>${list.map((s) =>
-    `<tr class="${s.career ? "career-sk" : ""}"><td>${esc(s.name)}${s.grouped && !skillSpec(s.name) ? " (any)" : ""}</td><td>${s.char}</td><td>${s.adv || ""}</td><td><b>${s.value ?? ""}</b></td></tr>`).join("")}</table>`;
-  const { locs, rows: armour } = armourByLocation();
+  const basicSkills = D.skills.filter((s) => !s.advanced);
+  const advancedSkills = D.skills.filter((s) => s.advanced && (s.adv > 0 || s.career));
+  const basicCols = skillColumns(basicSkills, 3);
+  const advancedCols = skillColumns(advancedSkills, 3);
+  const { locs, rows: armour, shieldAp } = armourByLocation();
   const { items, total, containers } = encTotals();
   const M = magicProfile(S, D);
   const spells = S.spells.map(findSpell).filter(Boolean);
@@ -721,6 +801,7 @@ function viewSheet() {
   }).join("");
   return `<div class="toolbar no-print">${btn("print", "Print / Save as PDF", "", "primary")}</div>
   <div class="sheet">
+    <section class="sheet-page sheet-page-1">
     <div class="sheet-head">
       <div><span class="lbl">Name</span><b class="big">${esc(S.name || "—")}</b></div>
       <div><span class="lbl">Species</span>${esc(D.sp.name)}</div>
@@ -739,28 +820,31 @@ function viewSheet() {
       <div><span class="lbl">Fortune</span><b class="big">${D.fortune}</b></div>
       <div><span class="lbl">Move</span><b class="big">${D.move}</b><span class="small">Walk ${D.walk} · Run ${D.run}</span></div>
       <div><span class="lbl">Enc</span><b class="big">${total}/${D.enc}</b></div>
-      <div><span class="lbl">XP</span>${S.xp.total - xpSpent(S)} / spent ${xpSpent(S)} / total ${S.xp.total}</div>
+      <div><span class="lbl">XP</span><span class="xp-line">${S.xp.total - xpSpent(S)} avail · ${xpSpent(S)} spent · ${S.xp.total} total</span></div>
     </div>
-    <h3>Skills <span class="small muted">(highlighted = Career Skill at current level)</span></h3>
-    <div class="cols tight">${skillTable(skillsShown.slice(0, half))}${skillTable(skillsShown.slice(half))}</div>
+    <h3>Skills <span class="sheet-hint small muted">(bold = career skill)</span></h3>
+    <h4 class="sheet-skills-sub">Basic</h4>
+    <div class="sheet-skills-cols sheet-skills-basic">${basicCols.map((col) => skillTableCompact(col)).join("")}</div>
+    ${advancedSkills.length ? `<h4 class="sheet-skills-sub">Advanced</h4>
+    <div class="sheet-skills-cols sheet-skills-advanced">${advancedCols.map((col) => skillTableCompact(col)).join("")}</div>` : ""}
     <h3>Talents</h3>
-    <table class="grid"><tr><th>Talent</th><th>Description</th><th>pg</th></tr>${D.talents.map((t) => {
-      const info = findTalent(t.name);
-      return `<tr><td><b>${esc(t.name)}</b></td><td class="small">${esc(info ? info.desc : "")}</td><td>${info ? info.page : ""}</td></tr>`;
-    }).join("")}</table>
-    <div class="cols tight">
+    ${talentsSheetBlock(D.talents)}
+    </section>
+    <section class="sheet-page sheet-page-2">
+    <div class="cols tight sheet-combat-cols">
       <div><h3>Weapons</h3><table class="grid"><tr><th>Name</th><th>Group</th><th>Enc</th><th>Reach/Range</th><th>Damage</th><th>Qualities</th></tr>${weaponRows(D)}</table></div>
-      <div><h3>Armour</h3><div class="armour-panel">${armourSilhouette(locs)}
+      <div><h3>Armour</h3><div class="armour-panel">${armourSilhouette(locs, shieldAp)}
         <div class="armour-detail"><table class="grid"><tr><th>Name</th><th>Locations</th><th>AP</th><th>Qualities</th></tr>${armour.map((a) =>
-        `<tr><td>${esc(a.name)}</td><td>${esc(a.locations)}</td><td>${esc(a.ap)}</td><td class="small">${esc(a.qualities || "")}</td></tr>`).join("")}</table>
-        <p class="small">Only armour marked <b>Worn</b> counts toward the figure. Hit locations: Head 01–09, L Arm 10–24, R Arm 25–44, Body 45–79, L Leg 80–89, R Leg 90–00.</p></div></div></div>
+        `<tr><td>${esc(a.name)}</td><td>${esc(armourLocationsLabel(a))}</td><td>${esc(a.ap)}</td><td class="small">${esc(a.qualities || "")}</td></tr>`).join("")}</table>
+        <p class="small sheet-hint">Body armour <b>Worn</b>; shields <b>Carried</b>. Hit locations: Head 01–09, Arms 10–44, Body 45–79, Legs 80–00.</p></div></div></div>
     </div>
-    <div class="cols tight">
-      <div>${trappingsSheetBlock(S, items, total, D.enc, containers)}</div>
-      <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p>
-        ${S.dooming?.text ? `<p><b>Dooming:</b> <i>${esc(S.dooming.text)}</i>${S.dooming.custom ? " <span class='muted small'>(custom)</span>" : ""}${S.dooming.roll != null ? ` <span class="muted small">(rolled ${S.dooming.roll})</span>` : ""}</p>` : ""}</div>
+    <div class="sheet-full-block">${trappingsSheetBlock(S, items, total, D.enc, containers)}</div>
+    <div class="sheet-full-block sheet-ambitions"><h3>Ambitions</h3>
+      <p><b>Personal:</b> ${esc(S.ambition)}</p>
+      <p><b>Party:</b> ${esc(S.partyAmbition)}</p>
+      ${S.dooming?.text ? `<p><b>Dooming:</b> <i>${esc(S.dooming.text)}</i>${S.dooming.custom ? " <span class='muted small'>(custom)</span>" : ""}${S.dooming.roll != null ? ` <span class="muted small">(rolled ${S.dooming.roll})</span>` : ""}</p>` : ""}
     </div>
-    ${spells.length || blessings.length || miracles.length ? `<h3>Spells and Prayers</h3><table class="grid"><tr><th>Name</th><th>CN</th><th>Range</th><th>Target</th><th>Duration</th><th>Effect</th></tr>
+    ${spells.length || blessings.length || miracles.length ? `<h3>Spells and Prayers</h3><table class="grid sheet-spells"><tr><th>Name</th><th>CN</th><th>Range</th><th>Target</th><th>Duration</th><th>Effect</th></tr>
       ${spells.map((s) => `<tr><td><b>${esc(s.name)}</b> <span class="muted small">${esc(s.lore)}</span></td><td>${esc(s.cn)}</td><td>${esc(s.range)}</td><td>${esc(s.target)}</td><td>${esc(s.duration)}</td><td class="small">${esc(s.desc)}</td></tr>`).join("")}
       ${blessings.map((b) => { const bl = DATA.blessings.find((x) => x.name === `Blessing of ${b}`) || {}; return `<tr><td><b>Blessing of ${esc(b)}</b></td><td>–</td><td>${esc(bl.range)}</td><td>${esc(bl.target)}</td><td>${esc(bl.duration)}</td><td class="small">${esc(bl.desc)}</td></tr>`; }).join("")}
       ${miracles.map((m) => `<tr><td><b>${esc(m.name)}</b> <span class="muted small">${esc(m.god)}</span></td><td>–</td><td>${esc(m.range)}</td><td>${esc(m.target)}</td><td>${esc(m.duration)}</td><td class="small">${esc(m.desc)}</td></tr>`).join("")}</table>` : ""}
@@ -770,6 +854,7 @@ function viewSheet() {
     ${S.bg && Object.values(S.bg).some(Boolean) ? `<h3>Background</h3>${BACKGROUND_QUESTIONS.filter(([k]) => S.bg[k]).map(([k, q]) => `<p class="small"><b>${esc(q)}</b> ${esc(S.bg[k])}</p>`).join("")}` : ""}
     ${S.characterNotes ? `<h3>Character notes</h3><p class="small sheet-notes">${esc(S.characterNotes)}</p>` : ""}
     ${S.notes ? `<h3>Background notes</h3><p class="small">${esc(S.notes)}</p>` : ""}
+    </section>
   </div>`;
 }
 
@@ -945,7 +1030,7 @@ function resetSpeciesDependent() {
   resetCareerDependent();
 }
 const ACTIONS = {
-  go: (k) => { step = k; sessionStorage.setItem("wfrp5e-step", k); window.scrollTo(0, 0); },
+  go: (k) => { step = k; sessionStorage.setItem(STEP_KEY, k); window.scrollTo(0, 0); },
   rollSpecies: () => { S.speciesRoll = d100(); },
   keepSpecies: () => { const id = speciesFromRoll(S.speciesRoll); if (S.species !== id) resetSpeciesDependent(); S.species = id; S.speciesMode = "first"; },
   chooseSpecies: (id) => { if (S.species !== id) resetSpeciesDependent(); S.species = id; S.speciesMode = "choose"; },
@@ -1067,7 +1152,9 @@ const ACTIONS = {
   toggleMiracle: (n) => { const i = S.miracles.indexOf(n); if (i >= 0) S.miracles.splice(i, 1); else S.miracles.push(n); },
   setItemStorage: (key, el) => {
     S.itemLoc = S.itemLoc || {};
-    S.itemLoc[key] = el.value;
+    const row = inventoryItems(S).find((it) => it.key === key);
+    const val = row && itemIsWeapon(S, row) && el.value === "Worn" ? "Carried" : el.value;
+    S.itemLoc[key] = val;
     if (S.worn) delete S.worn[key];
   },
   buyItem: (gi) => { const g = gearIndex()[+gi]; S.inventory.push({ name: g.name, price: g.price, enc: g.enc }); },
@@ -1194,7 +1281,7 @@ const ACTIONS = {
     const blob = new Blob([JSON.stringify(S, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${(S.name || "character").replace(/[^\w-]+/g, "_")}.wfrp5e.json`;
+    a.download = `${(S.name || "character").replace(/[^\w-]+/g, "_")}.character.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   },

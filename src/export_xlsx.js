@@ -1,7 +1,7 @@
 /* global CHARS, SPECIES, derive, baseChars, creationSkillAdv, totalSkillAdv, allTalents,
    findCareer, findGear, gearForInventoryItem, magicProfile, BACKGROUND_QUESTIONS, inventoryItems, purseTotal, itemStorageLoc */
 
-/** Writable cell layout — mirrors wfrp_xlsx/build_xlsx.py */
+/** Writable cell layout — mirrors companion xlsx build script */
 const XL = {
   R_INIT: 11,
   R_ADV: 12,
@@ -31,7 +31,7 @@ const XL = {
   M_N: 12,
   BG_Q0: 4,
   BG_SECTIONS: { psych: 13, cond: 19, contacts: 25, notes: 31 },
-  TEMPLATE: "WFRP5e_Character_Template.xlsx",
+  TEMPLATE: "Character_Template.xlsx",
 };
 
 const CHAR_COL = (i) => String.fromCharCode(66 + i);
@@ -105,7 +105,7 @@ function careerPathCells(st) {
       career: st.career,
       level: st.careerLevel || 1,
       entry: st.careerHistory.length ? "Career change" : "Starting career",
-      note: "Exported from WFRP 5e Character Creator",
+      note: "Exported from Character Creator",
     });
   }
   rows.slice(0, XL.CAR_N).forEach((row, i) => {
@@ -264,7 +264,7 @@ async function exportToExcel(st, opts = {}) {
   const name = (st.name || "character").replace(/[^\w-]+/g, "_");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-  a.download = `${name}.wfrp5e.xlsx`;
+  a.download = `${name}.character.xlsx`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
