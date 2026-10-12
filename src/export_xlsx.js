@@ -1,5 +1,5 @@
 /* global CHARS, SPECIES, derive, baseChars, creationSkillAdv, totalSkillAdv, allTalents,
-   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, startingTrappings, purseTotal */
+   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, startingTrappings, purseTotal, itemStorageLoc */
 
 /** Writable cell layout — mirrors wfrp_xlsx/build_xlsx.py */
 const XL = {
@@ -132,13 +132,12 @@ function inventoryRows(st) {
     .concat((st.customItems || []).map((it, i) => ({
       key: `custom:${i}`, name: it.name, category: it.category || "trap", enc: it.enc,
     })));
-  const worn = st.worn || {};
   const weapons = [];
   const armour = [];
   const traps = [];
   items.forEach((it) => {
     const g = findGear(it.name);
-    const loc = worn[it.key] ? "Worn" : "Carried";
+    const loc = itemStorageLoc(st, it.key);
     const row = { name: it.name, loc };
     const cat = it.category || gearCategory(g);
     if (cat === "weapon") weapons.push(row);

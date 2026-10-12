@@ -4,7 +4,8 @@
    findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, randomTalentFromRoll, baseChars,
    charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, resolvedCareerSkills, creationSkillAdv,
    isCareerSkill, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
-   purseTotal, extraMoneyPennies, itemEnc,
+   purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
+   ownedStorageLocations, containerStorageLabel, migrateState,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
    spellsOfLore, findSpell, findMiracle, skillMatchesEntry, exportToExcel */
 
@@ -23,7 +24,13 @@ const STEPS = [
 
 /* ---------- persistence ---------- */
 function load() {
-  try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); return s ? Object.assign(newState(), s) : null; } catch { return null; }
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    if (!s) return null;
+    const st = Object.assign(newState(), s);
+    migrateState(st);
+    return st;
+  } catch { return null; }
 }
 function save() { localStorage.setItem(STORE_KEY, JSON.stringify(S)); }
 
@@ -419,29 +426,36 @@ function viewMagic() {
 }
 
 /* ---------- step: gear ---------- */
-function inventoryItems() {
-  return startingTrappings(S).map((t, i) => ({ key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null }))
-    .concat(S.inventory.map((it, i) => ({ key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy" })))
-    .concat((S.customItems || []).map((it, i) => ({
-      key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap", idx: i, kind: "custom",
-    })));
-}
 function encTotals() {
-  const items = inventoryItems();
-  S.worn = S.worn || {};
-  const total = items.reduce((a, it) => a + Math.max(0, itemEnc(it) - (S.worn[it.key] ? 1 : 0)), 0);
-  return { items, total };
+  const enc = computeEncumbrance(S);
+  return { items: enc.items, total: enc.personTotal, containers: enc.containers };
+}
+function storageSelect(it, locations) {
+  const loc = itemStorageLoc(S, it.key);
+  const isCont = containerStorageLabel(it.name) != null;
+  const opts = locations.filter((l) => !isCont || l === "Carried" || l === "Worn");
+  return `<select data-act-change="setItemStorage" data-arg="${esc(it.key)}">${opts.map((l) => opt(l, l, loc === l)).join("")}</select>`;
+}
+function containerPanels(containers) {
+  if (!containers.length) return "";
+  return `<h3>Containers</h3>
+    <p class="small">Items stowed in a bag count against that container's capacity, not yours. Only the container's Enc counts on your person (Worn −1 Enc). ${pg(299)}</p>
+    ${containers.map((c) => `<div class="box container-box"><b>${esc(c.label)}</b> <span class="muted">(${esc(c.name)})</span>
+      — <span class="${c.used > c.capacity ? "warn" : "ok"}">${c.used} / ${c.capacity} Enc inside</span>
+      <ul class="small">${c.items.length ? c.items.map((i) => `<li>${esc(i.name)} (${itemEnc(i)} Enc)</li>`).join("") : "<li class='muted'>Empty</li>"}</ul></div>`).join("")}`;
 }
 function purse() { return purseTotal(S); }
 function viewGear() {
   if (!S.career) return `<h1>Gear Shop</h1><p class="warn">Choose a Career first.</p>`;
   const D = derive(S);
-  const { items, total } = encTotals();
+  const { items, total, containers } = encTotals();
+  const storageLocs = ownedStorageLocations(S);
   const money = purse();
   const inv = items.map((it) => `<tr><td>${esc(it.name)}</td><td class="muted small">${esc(it.source)}</td><td>${itemEnc(it)}</td>
-    <td><input type="checkbox" data-act="toggleWorn" data-arg="${esc(it.key)}" ${S.worn[it.key] ? "checked" : ""}></td>
+    <td>${storageSelect(it, storageLocs)}</td>
     <td>${it.kind === "buy" ? btn("sellItem", "Return", String(it.idx), "sm") : ""}${it.kind === "custom" ? btn("removeCustomItem", "Remove", String(it.idx), "sm") : ""}</td></tr>`).join("");
-  const cashLog = (S.moneyAdded || []).map((m, i) => `<li>${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoney", "×", String(i), "sm")}</li>`).join("");
+  const cashIn = (S.moneyAdded || []).map((m, i) => `<li>+ ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoney", "×", String(i), "sm")}</li>`).join("");
+  const cashOut = (S.moneyLost || []).map((m, i) => `<li>− ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoneyLost", "×", String(i), "sm")}</li>`).join("");
   const tables = [...new Set(gearIndex().map((g) => g.table))];
   const q = shopFilter.q.toLowerCase();
   const rows = gearIndex().filter((g) => (!shopFilter.table || g.table === shopFilter.table) && (!q || g.name.toLowerCase().includes(q) || (g.group || "").toLowerCase().includes(q)))
@@ -459,13 +473,20 @@ function viewGear() {
       <div class="box"><h3>Purse: <span class="${money < 0 ? "warn" : "ok"}">${fmtMoney(money)}</span></h3>
         <p class="small">1 GC = 20 shillings (s) = 240 pennies (d). Starting wealth from your career roll; add loot or pay later below.</p>
         ${S.wealth ? `<p class="small muted">Starting roll: ${fmtMoney(S.wealth.pennies)} (${esc(S.wealth.text)})</p>` : `<p class="small warn">Roll starting wealth on the Talents step, or add cash manually.</p>`}
-        ${cashLog ? `<ul class="small cash-log">${cashLog}</ul>` : ""}
+        ${cashIn || cashOut ? `<ul class="small cash-log">${cashIn}${cashOut}</ul>` : ""}
         <div class="row add-money">
           <label>GC <input data-bind="_addGC" data-num min="0" value="${esc(S._addGC ?? "")}" size="3"></label>
           <label>s <input data-bind="_addSS" data-num min="0" value="${esc(S._addSS ?? "")}" size="3"></label>
           <label>d <input data-bind="_addDD" data-num min="0" value="${esc(S._addDD ?? "")}" size="3"></label>
           <label class="grow">Note <input data-bind="_addMoneyNote" value="${esc(S._addMoneyNote || "")}" placeholder="e.g. loot from bandits"></label>
           ${btn("addMoney", "Add cash", "", "sm")}
+        </div>
+        <div class="row add-money">
+          <label>GC <input data-bind="_loseGC" data-num min="0" value="${esc(S._loseGC ?? "")}" size="3"></label>
+          <label>s <input data-bind="_loseSS" data-num min="0" value="${esc(S._loseSS ?? "")}" size="3"></label>
+          <label>d <input data-bind="_loseDD" data-num min="0" value="${esc(S._loseDD ?? "")}" size="3"></label>
+          <label class="grow">Note <input data-bind="_loseMoneyNote" value="${esc(S._loseMoneyNote || "")}" placeholder="e.g. stolen purse"></label>
+          ${btn("loseMoney", "Record loss", "", "sm")}
         </div>
         <h3>Custom item</h3>
         <p class="small">For gear not in the rulebook list (homebrew, gifts, odd trappings).</p>
@@ -475,9 +496,10 @@ function viewGear() {
           <label>Type <select data-bind="_customCat">${opt("trap", "Trapping", (S._customCat || "trap") === "trap")}${opt("weapon", "Weapon", S._customCat === "weapon")}${opt("armour", "Armour", S._customCat === "armour")}</select></label>
           ${btn("addCustomItem", "Add", "", "sm")}
         </div>
-        <h3>Inventory — Encumbrance <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span> ${pg(299)}</h3>
-        <p class="small">Worn items count 1 less Encumbrance.</p>
-        <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Worn</th><th></th></tr>${inv}</table></div>
+        <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
+        <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
+        <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
+        ${containerPanels(containers)}</div>
       <div class="box shop"><h3>Market</h3>
         <input placeholder="Search…" value="${esc(shopFilter.q)}" data-shop="q">
         <select data-shop="table">${opt("", "All tables")}${tables.map((t) => opt(t, t, shopFilter.table === t)).join("")}</select>
@@ -521,7 +543,7 @@ function viewModifiers() {
 
 /* ---------- character sheet ---------- */
 function weaponRows(D) {
-  const names = inventoryItems().map((i) => i.name);
+  const names = inventoryItems(S).map((i) => i.name);
   const sb = D.chars.S.bonus || 0;
   return names.map(findGear).filter((g) => g && g.damage && /WEAPONS|AMMUNITION/.test(g.table)).map((g) => {
     const dmg = g.damage.replace(/\+?SB/, "").replace(/\s+/g, "");
@@ -533,7 +555,7 @@ function weaponRows(D) {
 function armourByLocation() {
   const locs = { Head: 0, Arms: 0, Body: 0, Legs: 0 };
   const rows = [];
-  inventoryItems().forEach((it) => {
+  inventoryItems(S).forEach((it) => {
     const g = findGear(it.name);
     if (!g || g.table !== "ARMOUR" || !g.ap) return;
     rows.push(g);
@@ -552,7 +574,7 @@ function viewSheet() {
   const skillTable = (list) => `<table class="grid sk"><tr><th>Skill</th><th>Char</th><th>Adv</th><th>Value</th></tr>${list.map((s) =>
     `<tr class="${s.career ? "career-sk" : ""}"><td>${esc(s.name)}${s.grouped && !skillSpec(s.name) ? " (any)" : ""}</td><td>${s.char}</td><td>${s.adv || ""}</td><td><b>${s.value ?? ""}</b></td></tr>`).join("")}</table>`;
   const { locs, rows: armour } = armourByLocation();
-  const { items, total } = encTotals();
+  const { items, total, containers } = encTotals();
   const M = magicProfile(S, D);
   const spells = S.spells.map(findSpell).filter(Boolean);
   const blessings = M.hasBless && M.deity ? BLESSINGS_BY_CULT[M.deity] : [];
@@ -600,7 +622,8 @@ function viewSheet() {
         <p class="small">Hit locations: Head 01–09, Left Arm 10–24, Right Arm 25–44, Body 45–79, Left Leg 80–89, Right Leg 90–00.</p></div>
     </div>
     <div class="cols tight">
-      <div><h3>Trappings</h3><p class="small">${items.map((i) => `${esc(i.name)}${S.worn[i.key] ? " (worn)" : ""}`).join(", ")}</p>
+      <div><h3>Trappings</h3><p class="small">${items.map((i) => `${esc(i.name)} (${esc(itemStorageLoc(S, i.key))})`).join(", ")}</p>
+        ${containers.length ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${c.label} ${c.used}/${c.capacity}`).join(" · ")}</p>` : ""}
         <p><b>Wealth:</b> ${fmtMoney(purse())}</p></div>
       <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p></div>
     </div>
@@ -824,7 +847,11 @@ const ACTIONS = {
   rollWealth: () => { const c = findCareer(S.career); S.wealth = rollWealth(c.levels[0]); },
   toggleSpell: (n) => { const i = S.spells.indexOf(n); if (i >= 0) S.spells.splice(i, 1); else S.spells.push(n); },
   toggleMiracle: (n) => { const i = S.miracles.indexOf(n); if (i >= 0) S.miracles.splice(i, 1); else S.miracles.push(n); },
-  toggleWorn: (k) => { S.worn = S.worn || {}; S.worn[k] = !S.worn[k]; },
+  setItemStorage: (key, el) => {
+    S.itemLoc = S.itemLoc || {};
+    S.itemLoc[key] = el.value;
+    if (S.worn) delete S.worn[key];
+  },
   buyItem: (gi) => { const g = gearIndex()[+gi]; S.inventory.push({ name: g.name, price: g.price, enc: g.enc }); },
   sellItem: (i) => { S.inventory.splice(+i, 1); },
   addCustomItem: () => {
@@ -844,6 +871,15 @@ const ACTIONS = {
     S._addGC = ""; S._addSS = ""; S._addDD = ""; S._addMoneyNote = "";
   },
   removeMoney: (i) => { S.moneyAdded.splice(+i, 1); },
+  loseMoney: () => {
+    const gc = +S._loseGC || 0; const ss = +S._loseSS || 0; const dd = +S._loseDD || 0;
+    const pennies = gc * 240 + ss * 12 + dd;
+    if (pennies <= 0) { alert("Enter an amount lost (GC, s, or d)."); return; }
+    S.moneyLost = S.moneyLost || [];
+    S.moneyLost.push({ pennies, note: (S._loseMoneyNote || "").trim() });
+    S._loseGC = ""; S._loseSS = ""; S._loseDD = ""; S._loseMoneyNote = "";
+  },
+  removeMoneyLost: (i) => { S.moneyLost.splice(+i, 1); },
   print: () => { if (step !== "sheet") ACTIONS.go("sheet"); render(); setTimeout(() => window.print(), 50); },
   addXp: () => {
     const v = parseInt(document.getElementById("xpAdd").value, 10);
@@ -907,7 +943,10 @@ const ACTIONS = {
       S.career = nc.name; S.careerLevel = 1; S.ticks = 0; S._newCareer = "";
     }
   },
-  undo: () => { const s = undoStack.pop(); if (s) S = Object.assign(newState(), JSON.parse(s)); },
+  undo: () => {
+    const s = undoStack.pop();
+    if (s) { S = Object.assign(newState(), JSON.parse(s)); migrateState(S); }
+  },
   newChar: () => { if (confirm("Discard the current character and start over?")) { S = newState(); step = "species"; } },
   saveJson: () => {
     const blob = new Blob([JSON.stringify(S, null, 1)], { type: "application/json" });
@@ -981,7 +1020,14 @@ document.addEventListener("change", (ev) => {
 document.getElementById("fileIn").addEventListener("change", (ev) => {
   const f = ev.target.files[0];
   if (!f) return;
-  f.text().then((t) => { try { S = Object.assign(newState(), JSON.parse(t)); step = "sheet"; render(); } catch { alert("Could not read that file."); } });
+  f.text().then((t) => {
+    try {
+      S = Object.assign(newState(), JSON.parse(t));
+      migrateState(S);
+      step = "sheet";
+      render();
+    } catch { alert("Could not read that file."); }
+  });
   ev.target.value = "";
 });
 render();

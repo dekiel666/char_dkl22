@@ -8,13 +8,14 @@ const bonus = (v) => Math.floor(v / 10);
 
 function newState() {
   return {
-    version: 2, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
+    version: 3, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
     species: null, speciesMode: null, speciesRoll: null,
     career: null, careerMode: null, careerRolls: [], l2Trappings: [],
     charMethod: null, rollsA: null, rollsC: null, assign: null, points: null, charBonus: {}, charOther: {},
     speciesSkills: [], careerSkillChoice: {}, careerAdv: {},
     speciesTalentChoice: {}, randomTalents: [], manualRandom: false, careerTalent: null, talentChoice: {},
-    trappingChoice: {}, wealth: null, moneyAdded: [], inventory: [], customItems: [], purse: null,
+    trappingChoice: {}, wealth: null, moneyAdded: [], moneyLost: [], inventory: [], customItems: [],
+    itemLoc: {}, purse: null,
     lore: null, deity: null, spells: [], miracles: [],
     ambition: "", partyAmbition: "", bg: {}, notes: "", characterNotes: "",
     xp: { total: 0, log: [] }, adv: { chars: {}, skills: {} }, boughtTalents: [],
@@ -272,9 +273,10 @@ function gearIndex() {
         priceText: r.Price || r.Cost, price: parsePrice(r.Price || r.Cost), enc: r.Enc ?? r["Enc when worn"],
         avail: r.Availability, page: r.page,
       };
-      ["Reach", "Range", "Damage", "Qualities and Flaws", "Penalty", "Locations", "AP", "Carries"].forEach((k) => {
+      ["Reach", "Range", "Damage", "Qualities and Flaws", "Penalty", "Locations", "AP"].forEach((k) => {
         if (r[k] != null) item[k.toLowerCase().split(" ")[0]] = r[k];
       });
+      if (r.Carries != null) item.carries = r.Carries;
       GEAR_INDEX.push(item);
     }
   }
@@ -301,7 +303,9 @@ function findGear(name) {
 const encOf = (name) => { const g = findGear(name); const v = g ? parseInt(g.enc, 10) : NaN; return Number.isFinite(v) ? v : 0; };
 
 function extraMoneyPennies(st) {
-  return (st.moneyAdded || []).reduce((a, m) => a + (m.pennies || 0), 0);
+  const add = (st.moneyAdded || []).reduce((a, m) => a + (m.pennies || 0), 0);
+  const lost = (st.moneyLost || []).reduce((a, m) => a + (m.pennies || 0), 0);
+  return add - lost;
 }
 function purseTotal(st) {
   const spent = (st.inventory || []).reduce((a, it) => a + (it.price || 0), 0);
@@ -310,6 +314,92 @@ function purseTotal(st) {
 function itemEnc(it) {
   if (it.enc != null && it.enc !== "") return parseInt(it.enc, 10) || 0;
   return encOf(it.name);
+}
+
+function inventoryItems(st) {
+  return startingTrappings(st).map((t, i) => ({
+    key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null,
+  })).concat((st.inventory || []).map((it, i) => ({
+    key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy",
+  }))).concat((st.customItems || []).map((it, i) => ({
+    key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap",
+    idx: i, kind: "custom",
+  })));
+}
+
+function containerCarryCapacity(name) {
+  const g = findGear(name);
+  if (!g?.carries) return null;
+  const n = parseInt(String(g.carries).replace(/[^\d]/g, ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function containerStorageLabel(name) {
+  if (containerCarryCapacity(name) == null) return null;
+  const n = name.toLowerCase();
+  if (n.includes("backpack")) return "Backpack";
+  if (n.includes("sling bag") || n.includes("sling")) return "Sling Bag";
+  if (n.includes("saddlebag")) return "Saddlebags";
+  if (n.includes("large") && n.includes("sack")) return "Large Sack";
+  if (n.includes("sack")) return "Sack";
+  if (n.includes("pouch")) return "Pouch";
+  return name;
+}
+
+function itemStorageLoc(st, key) {
+  st.itemLoc = st.itemLoc || {};
+  if (st.itemLoc[key]) return st.itemLoc[key];
+  if (st.worn?.[key]) return "Worn";
+  return "Carried";
+}
+
+function ownedStorageLocations(st) {
+  const set = new Set(["Carried", "Worn"]);
+  inventoryItems(st).forEach((it) => {
+    const label = containerStorageLabel(it.name);
+    if (label) set.add(label);
+  });
+  return [...set];
+}
+
+function computeEncumbrance(st) {
+  const items = inventoryItems(st);
+  const containers = {};
+  items.forEach((it) => {
+    const label = containerStorageLabel(it.name);
+    if (!label) return;
+    containers[label] = {
+      label, name: it.name, capacity: containerCarryCapacity(it.name), used: 0, items: [], containerKey: it.key,
+    };
+  });
+  let personTotal = 0;
+  items.forEach((it) => {
+    const loc = itemStorageLoc(st, it.key);
+    const enc = itemEnc(it);
+    const isContainer = containerStorageLabel(it.name) != null;
+    if (isContainer && (loc === "Worn" || loc === "Carried")) {
+      personTotal += Math.max(0, enc - (loc === "Worn" ? 1 : 0));
+      return;
+    }
+    if (containers[loc]) {
+      containers[loc].used += enc;
+      containers[loc].items.push(it);
+      return;
+    }
+    if (loc === "Worn") personTotal += Math.max(0, enc - 1);
+    else personTotal += enc;
+  });
+  return { items, personTotal, containers: Object.values(containers) };
+}
+
+function migrateState(st) {
+  if (!st.moneyLost) st.moneyLost = [];
+  if (!st.itemLoc) st.itemLoc = {};
+  if (st.worn) {
+    Object.entries(st.worn).forEach(([k, on]) => {
+      if (on && !st.itemLoc[k]) st.itemLoc[k] = "Worn";
+    });
+  }
 }
 
 function startingTrappings(st) {

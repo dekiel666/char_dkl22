@@ -16,7 +16,8 @@ python build.py
 
 - Full creation wizard (species, career, characteristics, skills, talents, gear, magic, background)
 - **Custom gear** — add homebrew items (name, Enc, weapon/armour/trapping) on the Gear Shop tab
-- **Extra cash** — record money found later (GC / s / d + note); added to your purse
+- **Cash ledger** — add money found later or **record losses** (stolen, spent off-book, etc.); purse = starting wealth + additions − losses − shop purchases
+- **Containers & encumbrance** — assign each item **Worn**, **Carried**, or stowed in a container you own (Backpack, Pouch, Sack, …). Stowed items use the container’s **Carries** capacity from the rulebook; only the container’s Enc counts on your person. Gear Shop shows contents per bag and warns when over capacity
 - **Other characteristic modifiers** — mutations, injuries, etc. (point changes per characteristic; exports to Excel)
 - **Character notes** — ongoing notes on the sheet and in Background
 - XP advancement mode, JSON save/load, Excel export, print / PDF
