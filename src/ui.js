@@ -2,7 +2,7 @@
    PETTY_XP, TALENT_XP, ADVANCE_CAREER_XP, CHANGE_CAREER_XP, DEITIES, BLESSINGS_BY_CULT, COLOUR_LORES, OTHER_LORES,
    CHAOS_LORES, BACKGROUND_QUESTIONS, newState, rnd, rollDice, d100, bonus, skillBase, skillSpec, findSkill, findTalent,
    findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, rollUniqueCareer, randomTalentFromRoll, doomingFromRoll, baseChars,
-   charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
+   charBonusLimit, manualCharRollsValid, characteristicRollPool, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
    resolvedCareerSkills, creationSkillAdv,
    isCareerSkill, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
    purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
@@ -97,6 +97,7 @@ function issues(st, key) {
   }
   if (key === "chars") {
     if (!baseChars(st)) out.push("Determine all ten Characteristics.");
+    if (st.manualChars && !manualCharRollsValid(st)) out.push("Manual 2d10 totals must be 2–20 for each value in the roll set.");
     if (st.charMethod === "P") {
       const sum = CHARS.reduce((a, c) => a + ((st.points || {})[c] || 0), 0);
       if (sum !== 100) out.push(`Point-buy must total exactly 100 (currently ${sum}).`);
@@ -231,16 +232,30 @@ function viewCareer() {
 }
 
 /* ---------- step: characteristics ---------- */
+function charRollInput(i, key) {
+  const arr = S[key];
+  const v = arr?.[i];
+  return `<input type="number" min="2" max="20" class="num" data-bind="${key}.${i}" data-num data-rerender value="${v == null || v === "" ? "" : v}">`;
+}
+function manualCharRollPoolEditor(poolKey) {
+  return `<p class="small">Enter each 2d10 total (2–20). ${poolKey === "rollsC" ? "These are your new set for method C." : "For method B, assign them below."}</p>
+    <table class="grid compact"><tr>${CHARS.map((ch) => `<th>${ch}</th>`).join("")}</tr>
+    <tr>${CHARS.map((_, i) => `<td>${charRollInput(i, poolKey)}</td>`).join("")}</tr></table>`;
+}
 function viewChars() {
   if (!S.species || !S.career) return `<h1>3. Characteristics</h1><p class="warn">Choose Species and Career first.</p>`;
   const sp = SPECIES[S.species];
   const c = findCareer(S.career);
   const careerChars = CHARS.filter((ch) => c.advance_scheme[ch] === 1);
+  const manualToggle = `<label class="chk small"><input type="checkbox" data-bind="manualChars" data-bool data-rerender ${S.manualChars ? "checked" : ""}> Enter 2d10 totals manually (with GM permission)</label>`;
   if (!S.rollsA) {
+    const manualBlock = S.manualChars ? `<div class="manual-chars">${manualCharRollPoolEditor("rollsA")}
+      ${btn("confirmManualChars", "Use these values", "", "primary")}</div>` : "";
     return `<h1>3. Characteristics ${pg(38)}</h1><div class="box">
       <p>Roll 2d10 for each Characteristic in order. You can then keep them (A, +6 Career points, counts for Fickle Fate),
       rearrange them (B, +3 Career points), or roll a new set / use 100-point buy (C, no bonus).</p>
-      ${btn("rollChars", "Roll 2d10 × 10", "", "primary")}</div>`;
+      ${btn("rollChars", "Roll 2d10 × 10", "", "primary")} ${manualToggle}
+      ${manualBlock}</div>`;
   }
   const m = S.charMethod;
   const methods = [
@@ -251,12 +266,13 @@ function viewChars() {
   const limit = charBonusLimit(S);
   const used = Object.values(S.charBonus).reduce((a, b) => a + b, 0);
   const D = derive(S);
+  const rollCol = S.manualChars ? "2d10 (manual)" : "2d10";
   const rows = CHARS.map((ch, i) => {
     let rollCell;
-    if (m === "A") rollCell = S.rollsA[i];
+    if (m === "A") rollCell = S.manualChars ? charRollInput(i, "rollsA") : S.rollsA[i];
     else if (m === "P") rollCell = `<input type="number" min="4" max="16" class="num" data-bind="points.${ch}" data-num data-rerender value="${S.points[ch]}">`;
     else if (rolls) {
-      rollCell = `<select data-act-change="assignRoll" data-arg="${ch}">${rolls.map((r, ri) => opt(ri, `${r}`, S.assign[ch] === ri)).join("")}</select>`;
+      rollCell = `<select data-act-change="assignRoll" data-arg="${ch}">${rolls.map((r, ri) => opt(ri, `${r ?? "?"}`, S.assign[ch] === ri)).join("")}</select>`;
     } else rollCell = "–";
     const isCareer = careerChars.includes(ch);
     const b = S.charBonus[ch] || 0;
@@ -265,16 +281,19 @@ function viewChars() {
       <td>${bonusCell}</td><td><b>${D.chars[ch].initial ?? "–"}</b></td><td>${D.chars[ch].bonus ?? ""}</td></tr>`;
   }).join("");
   const pointsSum = m === "P" ? CHARS.reduce((a, ch) => a + (S.points[ch] || 0), 0) : null;
+  const poolEdit = S.manualChars && m === "B" ? `<div class="manual-chars">${manualCharRollPoolEditor("rollsA")}</div>` : "";
+  const poolEditC = S.manualChars && m === "C" && S.rollsC ? `<div class="manual-chars">${manualCharRollPoolEditor("rollsC")}</div>` : "";
   return `<h1>3. Characteristics ${pg(38)}</h1>
-    <div class="box">${methods}
+    <div class="box">${methods} ${manualToggle}
     <p class="small">${m === "A" ? "Rolls kept in order. Distribute up to 6 points among your highlighted Career Characteristics." :
       m === "B" ? "Assign the rolled values as you like (each value once), then distribute up to 3 Career points." :
       m === "C" ? "A brand new set, assigned as you like. No other increases." : "Distribute 100 points, minimum 4 and maximum 16 each. No other increases."}
       Talent bonuses (e.g. Savvy) are included in the total.</p>
-    ${m === "C" && !S.rollsC ? `<p>${btn("rollCharsC", "Roll a new set of 2d10 × 10", "", "primary")}</p>` : ""}
+    ${m === "C" && !S.rollsC ? `<p>${S.manualChars ? btn("initManualRollsC", "Start manual set (2d10 × 10)", "", "primary") : btn("rollCharsC", "Roll a new set of 2d10 × 10", "", "primary")}</p>` : ""}
+    ${poolEdit}${poolEditC}
     ${pointsSum != null ? `<p>Points used: <b class="${pointsSum === 100 ? "ok" : "warn"}">${pointsSum} / 100</b></p>` : ""}
     ${limit ? `<p>Career points used: <b>${used} / ${limit}</b> (Career Characteristics: ${careerChars.join(", ")})</p>` : ""}
-    <table class="grid"><tr><th></th><th>2d10</th><th>Species</th><th>Career bonus</th><th>Total</th><th>Bonus</th></tr>${rows}</table></div>`;
+    <table class="grid"><tr><th></th><th>${rollCol}</th><th>Species</th><th>Career bonus</th><th>Total</th><th>Bonus</th></tr>${rows}</table></div>`;
 }
 
 /* ---------- step: skills ---------- */
@@ -395,10 +414,15 @@ function viewMagic() {
   const M = magicProfile(S, D);
   const req = (list) => `<ul class="req">${list.map(([l, ok]) => `<li class="${ok ? "ok" : "warn"}">${ok ? "✔" : "✘"} ${esc(l)}</li>`).join("")}</ul>`;
   if (!M.isCaster && !M.isPriest) {
-    return `<h1>Magic & Prayers ${pg(40)}</h1><div class="box"><p>Your Character has no magical or divine Talents yet.</p>
-      <p class="small">A starting spellcaster needs Second Sight, Language (Magick), Channelling and Petty Magic.
-      A priest needs Bless (Deity) and the Pray Skill. These may be bought later in the Advancement tab.</p>
-      <h3>Spellcaster checklist</h3>${req(M.casterReq)}<h3>Priest checklist</h3>${req(M.priestReq)}</div>`;
+    return `<h1>Magic & Prayers ${pg(40)} <span class="tag">optional</span></h1>
+      <div class="box"><p>Your Character has no magical or divine Talents yet. You can <b>skip this step</b> and continue to Gear Shop.</p>
+      <p class="small muted">If you pursue magic later, a starting spellcaster typically needs Second Sight, Language (Magick), Channelling, and Petty Magic.
+      A priest needs Bless (Deity) and the Pray Skill — often bought on the Advancement tab.</p>
+      <details class="optional-checklists">
+        <summary>Reference checklists (optional)</summary>
+        <h3>Spellcaster checklist</h3>${req(M.casterReq)}
+        <h3>Priest checklist</h3>${req(M.priestReq)}
+      </details></div>`;
   }
   let html = `<h1>Magic & Prayers ${pg(40)}</h1>`;
   if (M.isCaster) {
@@ -507,6 +531,7 @@ function viewGear() {
         <td>${esc(g.priceText)}</td><td>${esc(g.enc)}</td><td class="small">${esc(g.avail)}</td>
         <td>${g.price != null ? btn("buyItem", "Buy", String(gi), "sm", g.price > money) : ""}</td></tr>`;
     }).join("");
+  const discardLog = discardedGearPanel();
   return `<h1>Gear Shop ${pg(296)}</h1>
     <div class="cols">
       <div class="box"><h3>Purse: <span class="${money < 0 ? "warn" : "ok"}">${fmtMoney(money)}</span></h3>
@@ -538,13 +563,12 @@ function viewGear() {
         <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
         <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
         <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
-        ${discardedGearPanel()}
         ${containerPanels(containers)}</div>
       <div class="box shop"><h3>Market</h3>
         <input placeholder="Search…" value="${esc(shopFilter.q)}" data-shop="q">
         <select data-shop="table">${opt("", "All tables")}${tables.map((t) => opt(t, t, shopFilter.table === t)).join("")}</select>
         <table class="grid"><tr><th>Item</th><th>Price</th><th>Enc</th><th>Avail.</th><th></th></tr>${rows}</table></div>
-    </div>`;
+    </div>${discardLog ? `<div class="box discarded-log-panel">${discardLog}</div>` : ""}`;
 }
 
 /* ---------- step: background ---------- */
@@ -846,14 +870,27 @@ const ACTIONS = {
     if (i >= 0) S.l2Trappings.splice(i, 1); else S.l2Trappings.push(t);
     S.ticks = S.l2Trappings.length;
   },
-  rollChars: () => { S.rollsA = CHARS.map(() => rollDice(2, 10)); S.charMethod = "A"; S.charBonus = {}; },
+  rollChars: () => { S.manualChars = false; S.rollsA = CHARS.map(() => rollDice(2, 10)); S.charMethod = "A"; S.charBonus = {}; },
+  confirmManualChars: () => {
+    S.rollsA = S.rollsA || CHARS.map(() => null);
+    if (!manualCharRollsValid({ ...S, charMethod: "A" })) {
+      alert("Enter all ten 2d10 totals (each 2–20).");
+      return;
+    }
+    S.charMethod = "A";
+    S.charBonus = {};
+  },
+  initManualRollsC: () => {
+    S.rollsC = CHARS.map(() => null);
+    S.assign = Object.fromEntries(CHARS.map((c, i) => [c, i]));
+  },
   charMethod: (m) => {
     S.charMethod = m; S.charBonus = {};
     if (m === "B") S.assign = Object.fromEntries(CHARS.map((c, i) => [c, i]));
     if (m === "C") S.assign = S.rollsC ? Object.fromEntries(CHARS.map((c, i) => [c, i])) : null;
     if (m === "P" && !S.points) S.points = Object.fromEntries(CHARS.map((c) => [c, 10]));
   },
-  rollCharsC: () => { S.rollsC = CHARS.map(() => rollDice(2, 10)); S.assign = Object.fromEntries(CHARS.map((c, i) => [c, i])); },
+  rollCharsC: () => { S.manualChars = false; S.rollsC = CHARS.map(() => rollDice(2, 10)); S.assign = Object.fromEntries(CHARS.map((c, i) => [c, i])); },
   assignRoll: (ch, el) => {
     const idx = +el.value;
     const other = CHARS.find((c) => S.assign[c] === idx);
@@ -1086,6 +1123,23 @@ function applyBind(el) {
   if (el.dataset.wrap !== undefined) v = v.trim() ? `${el.dataset.wrap} (${v.trim()})` : null;
   if (v === "") v = el.tagName === "SELECT" ? null : "";
   const bind = el.dataset.bind;
+  if (bind === "manualChars") {
+    if (v) {
+      if (!S.rollsA) S.rollsA = CHARS.map(() => null);
+      if (!S.charMethod) { S.charMethod = "A"; S.charBonus = {}; }
+    } else if (!S.rollsA?.some((r) => r != null && r !== "")) {
+      S.rollsA = null;
+      S.charMethod = null;
+      S.charBonus = {};
+    }
+  }
+  if (/^rollsA\.\d+$/.test(bind) || /^rollsC\.\d+$/.test(bind)) {
+    const key = bind.startsWith("rollsC") ? "rollsC" : "rollsA";
+    const i = +bind.split(".")[1];
+    if (!S[key]) S[key] = CHARS.map(() => null);
+    S[key][i] = v;
+    return;
+  }
   if (bind === "careerTalent" || /^randomTalents\.\d+\.name$/.test(bind)) {
     if (v && !canAddCreationTalent(S, v, bind === "careerTalent" ? { skipCareer: true } : { skipRandomIndex: +bind.split(".")[1] })) {
       alert(`You cannot take ${skillBase(v)} again — only stackable Talents (e.g. Strong Back) may be taken twice at creation.`);

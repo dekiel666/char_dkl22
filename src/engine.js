@@ -11,7 +11,7 @@ function newState() {
     version: 4, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
     species: null, speciesMode: null, speciesRoll: null,
     career: null, careerMode: null, careerRolls: [], l2Trappings: [],
-    charMethod: null, rollsA: null, rollsC: null, assign: null, points: null, charBonus: {}, charOther: {},
+    charMethod: null, rollsA: null, rollsC: null, assign: null, points: null, charBonus: {}, charOther: {}, manualChars: false,
     speciesSkills: [], careerSkillChoice: {}, careerAdv: {},
     speciesTalentChoice: {}, randomTalents: [], manualRandom: false,
     dooming: null, manualDooming: false, careerTalent: null, talentChoice: {},
@@ -122,6 +122,15 @@ function baseChars(st) {
   return out;
 }
 const charBonusLimit = (st) => ({ A: 6, B: 3 }[st.charMethod] || 0);
+function characteristicRollPool(st) {
+  if (!st.charMethod || st.charMethod === "P") return null;
+  return st.charMethod === "C" ? st.rollsC : st.rollsA;
+}
+function manualCharRollsValid(st) {
+  if (!st.manualChars || st.charMethod === "P") return true;
+  const pool = characteristicRollPool(st);
+  return !!(pool && pool.length === 10 && pool.every((r) => r >= 2 && r <= 20));
+}
 
 /* ---------- talents ---------- */
 function talentStackLimit(nameOrInfo) {
@@ -560,6 +569,7 @@ function migrateState(st) {
   if (!st.removedGear) st.removedGear = [];
   if (st.gearDiscardedSpend == null) st.gearDiscardedSpend = 0;
   if (!st.discardedLog) st.discardedLog = [];
+  if (st.manualChars == null) st.manualChars = false;
   if (st.worn) {
     Object.entries(st.worn).forEach(([k, on]) => {
       if (on && !st.itemLoc[k]) st.itemLoc[k] = "Worn";
