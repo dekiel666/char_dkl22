@@ -1,5 +1,5 @@
 /* global CHARS, SPECIES, derive, baseChars, creationSkillAdv, totalSkillAdv, allTalents,
-   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, startingTrappings, purseTotal, itemStorageLoc */
+   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, inventoryItems, purseTotal, itemStorageLoc */
 
 /** Writable cell layout — mirrors wfrp_xlsx/build_xlsx.py */
 const XL = {
@@ -126,12 +126,7 @@ function gearCategory(g) {
 }
 
 function inventoryRows(st) {
-  const items = startingTrappings(st).map((t, i) => ({
-    key: `start:${i}:${t.name}`, name: t.name,
-  })).concat(st.inventory.map((it, i) => ({ key: `buy:${i}`, name: it.name })))
-    .concat((st.customItems || []).map((it, i) => ({
-      key: `custom:${i}`, name: it.name, category: it.category || "trap", enc: it.enc,
-    })));
+  const items = inventoryItems(st);
   const weapons = [];
   const armour = [];
   const traps = [];
@@ -206,7 +201,11 @@ function backgroundCells(st) {
     const v = st.bg[k];
     if (v) out[`Background!B${XL.BG_Q0 + i}`] = v;
   });
-  const notes = [st.characterNotes, st.notes].filter(Boolean).join("\n\n");
+  const notes = [
+    st.dooming?.text ? `Dooming (p.118${st.dooming.custom ? ", custom" : ""}): ${st.dooming.text}` : null,
+    st.characterNotes,
+    st.notes,
+  ].filter(Boolean).join("\n\n");
   if (notes) out[`Background!B${XL.BG_SECTIONS.notes}`] = notes;
   const app = [st.appearance.desc, st.appearance.age && `Age: ${st.appearance.age}`,
     st.appearance.height && `Height: ${st.appearance.height}`,

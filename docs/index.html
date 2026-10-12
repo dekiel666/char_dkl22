@@ -40,7 +40,7 @@ h3 { color: #5b1414; }
 .cols > .box { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin: 8px 0; }
 .row label.grow { flex: 1 1 160px; }
-.cash-log { margin: 6px 0; padding-left: 1.2em; }
+.cash-log, .discard-log { margin: 6px 0; padding-left: 1.2em; }
 .container-box { margin-top: 10px; }
 .container-box ul { margin: 4px 0 0; padding-left: 1.2em; }
 .char-other input.num { width: 3.2em; text-align: center; }
@@ -256,6 +256,42 @@ const RANDOM_TALENTS = [
   [87, "Supportive"], [90, "Tinker"], [92, "Tunnel Fighter"], [95, "Very Resilient"], [97, "Very Strong"], [100, "Warrior Born"],
 ];
 
+/** Doomings table (page 118) — roll when your Character has the Doomed Talent. */
+const DOOMINGS = [
+  [3, "The witch’s word shall write your doom."],
+  [6, "Beware the sign of the crimson sun."],
+  [9, "Thine mind lingers overlong in the land of dreams."],
+  [12, "Tread not upon the tender roots of sleeping trees."],
+  [15, "Trust not the signs of Ranald."],
+  [18, "Hold thine breath under Morrslieb’s light, lest darkness take root in thine soul."],
+  [21, "Fear the land bereft of the seagull’s cry."],
+  [24, "Be thou impious upon a Mondstille night and thou wilt never see another."],
+  [28, "Trust not in the strength of bridges if the day be a Festag."],
+  [31, "The children of Ulric call, with haste thou wilt fall."],
+  [34, "A night without song precedes a morning without waking."],
+  [38, "For the want of a key, that’s the ending of thee."],
+  [41, "An ogre may name you his most valuable boon and yet remain an ogre."],
+  [44, "It ringeth once: peace. It ringeth twice: pleasure. It ringeth thrice: death."],
+  [47, "The Twisted Puppeteer doth pull thy strings and thus conjure up the end of things."],
+  [50, "Ottokar dared to court the divine, but to do so is no right of thine."],
+  [52, "Recall young Tomas and provoke not the beast of the woods."],
+  [55, "Be thou circumspect when carousing with dwarfs."],
+  [58, "Plague and dark disease shall bring thee quickly to thy knees."],
+  [62, "The sword shalt deliver no justice, only thine end."],
+  [65, "The sticky bun! The pork pasty! The eel and leek pie! Lo, they are Morr’s dishes!"],
+  [68, "Strain thou not the patience of the weary Shallyan."],
+  [71, "A lurker in goblin shape waits to waylay every treasure seeker."],
+  [74, "Recall Baron Trister and honour thy debts."],
+  [78, "Keep the relic of a crow’s skull upon thee, lest thee drink poison and perish."],
+  [81, "When thou wager with elves, win thou may, lose thou may, but cheat thou not."],
+  [84, "Laugh not in the face of the flatulent lest thine own guts fester."],
+  [87, "Never was there one such as thee, who drowned on land and not at sea."],
+  [91, "As new life cries out, Father Morr shall welcome thee."],
+  [94, "Heed the siren’s trilling, or soon your heart lies still."],
+  [97, "Rise not before Cacklefax’s calling, for thine death is early indeed."],
+  [100, "Morr sends a maiden."],
+];
+
 // Random Class and Career table (pages 36-37): ranges per species, in order human, dwarf, halfling, highelf, woodelf.
 const CAREER_TABLE = {
   Apothecary: ["1", "1", "1", "1-2", ""], Engineer: ["2", "2-4", "2", "", ""], Lawyer: ["3", "5-6", "3-4", "3-6", ""],
@@ -340,7 +376,7 @@ const BACKGROUND_QUESTIONS = [
   ["lately", "What have you been doing lately?"],
 ];
 
-/* global DATA, CHARS, SPECIES, SPECIES_TABLE, RANDOM_TALENTS, CAREER_TABLE, SPECIES_ORDER, CLASS_TRAPPINGS,
+/* global DATA, CHARS, SPECIES, SPECIES_TABLE, RANDOM_TALENTS, DOOMINGS, CAREER_TABLE, SPECIES_ORDER, CLASS_TRAPPINGS,
    BASE_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP, PETTY_XP, LEVEL_TICKS, COLOUR_LORES */
 
 const rnd = (sides) => 1 + Math.floor(Math.random() * sides);
@@ -350,14 +386,15 @@ const bonus = (v) => Math.floor(v / 10);
 
 function newState() {
   return {
-    version: 3, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
+    version: 4, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
     species: null, speciesMode: null, speciesRoll: null,
     career: null, careerMode: null, careerRolls: [], l2Trappings: [],
     charMethod: null, rollsA: null, rollsC: null, assign: null, points: null, charBonus: {}, charOther: {},
     speciesSkills: [], careerSkillChoice: {}, careerAdv: {},
-    speciesTalentChoice: {}, randomTalents: [], manualRandom: false, careerTalent: null, talentChoice: {},
+    speciesTalentChoice: {}, randomTalents: [], manualRandom: false,
+    dooming: null, manualDooming: false, careerTalent: null, talentChoice: {},
     trappingChoice: {}, wealth: null, moneyAdded: [], moneyLost: [], inventory: [], customItems: [],
-    itemLoc: {}, purse: null,
+    itemLoc: {}, removedGear: [], gearDiscardedSpend: 0, discardedLog: [], purse: null,
     lore: null, deity: null, spells: [], miracles: [],
     ambition: "", partyAmbition: "", bg: {}, notes: "", characterNotes: "",
     xp: { total: 0, log: [] }, adv: { chars: {}, skills: {} }, boughtTalents: [],
@@ -431,7 +468,20 @@ function careerFromRoll(sid, r) {
   }
   return null;
 }
+/** Roll d100 until the career differs from careers already represented in rolls (rulebook: reroll duplicates). */
+function rollUniqueCareer(sid, rollsSoFar) {
+  const taken = new Set(rollsSoFar.map((r) => careerFromRoll(sid, r)).filter(Boolean));
+  let guard = 0;
+  do {
+    const r = d100();
+    const name = careerFromRoll(sid, r);
+    guard++;
+    if (name && !taken.has(name)) return r;
+  } while (guard < 200);
+  return d100();
+}
 function randomTalentFromRoll(r) { return RANDOM_TALENTS.find(([max]) => r <= max)[1]; }
+function doomingFromRoll(r) { return DOOMINGS.find(([max]) => r <= max)[1]; }
 
 /* ---------- characteristics ---------- */
 function baseChars(st) {
@@ -452,6 +502,49 @@ function baseChars(st) {
 const charBonusLimit = (st) => ({ A: 6, B: 3 }[st.charMethod] || 0);
 
 /* ---------- talents ---------- */
+function talentStackLimit(nameOrInfo) {
+  const info = typeof nameOrInfo === "string" ? findTalent(nameOrInfo) : nameOrInfo;
+  return info?.multi ? 2 : 1;
+}
+
+function countCreationTalentBase(st, base, opts = {}) {
+  let n = 0;
+  const sp = SPECIES[st.species];
+  if (sp) {
+    sp.talents.forEach((t, i) => {
+      const ch = parseChoice(t);
+      const nm = ch.fixed || st.speciesTalentChoice[i];
+      if (nm && skillBase(nm) === base) n++;
+    });
+    (st.randomTalents || []).forEach((rt, ri) => {
+      if (opts.skipRandomIndex === ri) return;
+      if (rt?.name && skillBase(rt.name) === base) n++;
+    });
+  }
+  if (!opts.skipCareer && st.careerTalent && skillBase(st.careerTalent) === base) n++;
+  return n;
+}
+
+function canAddCreationTalent(st, name, opts = {}) {
+  if (!name) return false;
+  const base = skillBase(name);
+  return countCreationTalentBase(st, base, opts) < talentStackLimit(base);
+}
+
+function creationTalentDuplicateIssues(st) {
+  const tally = new Map();
+  creationTalents(st).forEach((t) => {
+    const b = skillBase(t.name);
+    tally.set(b, (tally.get(b) || 0) + 1);
+  });
+  const out = [];
+  tally.forEach((count, base) => {
+    const limit = talentStackLimit(base);
+    if (count > limit) out.push(`Talent “${base}” is taken ${count} times (maximum ${limit} at creation).`);
+  });
+  return out;
+}
+
 function creationTalents(st) {
   const list = [];
   const sp = SPECIES[st.species];
@@ -649,9 +742,120 @@ function extraMoneyPennies(st) {
   const lost = (st.moneyLost || []).reduce((a, m) => a + (m.pennies || 0), 0);
   return add - lost;
 }
+function gearSpent(st) {
+  const inv = (st.inventory || []).reduce((a, it) => a + (it.price || 0), 0);
+  return inv + (st.gearDiscardedSpend || 0);
+}
 function purseTotal(st) {
-  const spent = (st.inventory || []).reduce((a, it) => a + (it.price || 0), 0);
-  return (st.wealth ? st.wealth.pennies : 0) + extraMoneyPennies(st) - spent;
+  return (st.wealth ? st.wealth.pennies : 0) + extraMoneyPennies(st) - gearSpent(st);
+}
+
+function remapIndexedItemLoc(st, prefix, removedIndex) {
+  const re = new RegExp(`^${prefix}:(\\d+)$`);
+  const next = {};
+  Object.entries(st.itemLoc || {}).forEach(([k, v]) => {
+    const m = k.match(re);
+    if (!m) { next[k] = v; return; }
+    const idx = +m[1];
+    if (idx === removedIndex) return;
+    next[idx > removedIndex ? `${prefix}:${idx - 1}` : k] = v;
+  });
+  st.itemLoc = next;
+}
+
+function returnBuyItem(st, i) {
+  if (!(st.inventory || [])[i]) return;
+  st.inventory.splice(i, 1);
+  remapIndexedItemLoc(st, "buy", i);
+}
+
+function allInventoryItemRows(st) {
+  return startingTrappings(st).map((t, i) => ({
+    key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null, kind: "start",
+  })).concat((st.inventory || []).map((it, i) => ({
+    key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy",
+  }))).concat((st.customItems || []).map((it, i) => ({
+    key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap",
+    idx: i, kind: "custom",
+  })));
+}
+
+function pushDiscardedLog(st, entry) {
+  st.discardedLog = st.discardedLog || [];
+  st.discardedLog.push({ ...entry, at: Date.now() });
+}
+
+function discardGearByKey(st, key) {
+  const row = allInventoryItemRows(st).find((it) => it.key === key);
+  if (!row || (st.removedGear || []).includes(key)) return;
+  const loc = itemStorageLoc(st, key);
+  const entry = { kind: row.kind, name: row.name };
+  if (row.source) entry.source = row.source;
+  if (row.kind === "start") entry.startKey = key;
+  if (row.kind === "buy") { entry.price = row.price; entry.enc = row.enc; }
+  if (row.kind === "custom") { entry.enc = row.enc; entry.category = row.category; }
+  if (loc && loc !== "Carried") entry.storageLoc = loc;
+
+  st.removedGear = st.removedGear || [];
+  if (key.startsWith("start:")) {
+    if (!st.removedGear.includes(key)) st.removedGear.push(key);
+    if (st.itemLoc) delete st.itemLoc[key];
+    pushDiscardedLog(st, entry);
+    return;
+  }
+  if (key.startsWith("buy:")) {
+    const i = +key.slice(4);
+    const it = (st.inventory || [])[i];
+    if (!it) return;
+    if (it.price) st.gearDiscardedSpend = (st.gearDiscardedSpend || 0) + it.price;
+    st.inventory.splice(i, 1);
+    remapIndexedItemLoc(st, "buy", i);
+    pushDiscardedLog(st, entry);
+    return;
+  }
+  if (key.startsWith("custom:")) {
+    const i = +key.slice(7);
+    if (!(st.customItems || [])[i]) return;
+    st.customItems.splice(i, 1);
+    remapIndexedItemLoc(st, "custom", i);
+    pushDiscardedLog(st, entry);
+  }
+}
+
+function restoreDiscardedGear(st, index) {
+  const entry = (st.discardedLog || [])[index];
+  if (!entry) return;
+  st.removedGear = st.removedGear || [];
+  if (entry.kind === "start") {
+    const keys = new Set([entry.startKey]);
+    allInventoryItemRows(st).forEach((it) => {
+      if (it.kind === "start" && it.name === entry.name && (!entry.source || it.source === entry.source)) keys.add(it.key);
+    });
+    st.removedGear = st.removedGear.filter((k) => !keys.has(k));
+    const row = allInventoryItemRows(st).find((it) => keys.has(it.key));
+    if (row && entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[row.key] = entry.storageLoc;
+    }
+  } else if (entry.kind === "buy") {
+    st.inventory = st.inventory || [];
+    st.inventory.push({ name: entry.name, price: entry.price, enc: entry.enc });
+    if (entry.price) st.gearDiscardedSpend = Math.max(0, (st.gearDiscardedSpend || 0) - entry.price);
+    const newKey = `buy:${st.inventory.length - 1}`;
+    if (entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[newKey] = entry.storageLoc;
+    }
+  } else if (entry.kind === "custom") {
+    st.customItems = st.customItems || [];
+    st.customItems.push({ name: entry.name, enc: entry.enc, category: entry.category || "trap" });
+    const newKey = `custom:${st.customItems.length - 1}`;
+    if (entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[newKey] = entry.storageLoc;
+    }
+  }
+  st.discardedLog.splice(index, 1);
 }
 function itemEnc(it) {
   if (it.enc != null && it.enc !== "") return parseInt(it.enc, 10) || 0;
@@ -659,14 +863,8 @@ function itemEnc(it) {
 }
 
 function inventoryItems(st) {
-  return startingTrappings(st).map((t, i) => ({
-    key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null,
-  })).concat((st.inventory || []).map((it, i) => ({
-    key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy",
-  }))).concat((st.customItems || []).map((it, i) => ({
-    key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap",
-    idx: i, kind: "custom",
-  })));
+  const removed = new Set(st.removedGear || []);
+  return allInventoryItemRows(st).filter((it) => !removed.has(it.key));
 }
 
 function containerCarryCapacity(name) {
@@ -737,6 +935,9 @@ function computeEncumbrance(st) {
 function migrateState(st) {
   if (!st.moneyLost) st.moneyLost = [];
   if (!st.itemLoc) st.itemLoc = {};
+  if (!st.removedGear) st.removedGear = [];
+  if (st.gearDiscardedSpend == null) st.gearDiscardedSpend = 0;
+  if (!st.discardedLog) st.discardedLog = [];
   if (st.worn) {
     Object.entries(st.worn).forEach(([k, on]) => {
       if (on && !st.itemLoc[k]) st.itemLoc[k] = "Worn";
@@ -802,7 +1003,7 @@ const findSpell = (name) => DATA.spells.find((s) => s.name === name);
 const findMiracle = (name) => DATA.miracles.find((m) => m.name === name);
 
 /* global CHARS, SPECIES, derive, baseChars, creationSkillAdv, totalSkillAdv, allTalents,
-   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, startingTrappings, purseTotal, itemStorageLoc */
+   findCareer, findGear, magicProfile, BACKGROUND_QUESTIONS, inventoryItems, purseTotal, itemStorageLoc */
 
 /** Writable cell layout — mirrors wfrp_xlsx/build_xlsx.py */
 const XL = {
@@ -929,12 +1130,7 @@ function gearCategory(g) {
 }
 
 function inventoryRows(st) {
-  const items = startingTrappings(st).map((t, i) => ({
-    key: `start:${i}:${t.name}`, name: t.name,
-  })).concat(st.inventory.map((it, i) => ({ key: `buy:${i}`, name: it.name })))
-    .concat((st.customItems || []).map((it, i) => ({
-      key: `custom:${i}`, name: it.name, category: it.category || "trap", enc: it.enc,
-    })));
+  const items = inventoryItems(st);
   const weapons = [];
   const armour = [];
   const traps = [];
@@ -1009,7 +1205,11 @@ function backgroundCells(st) {
     const v = st.bg[k];
     if (v) out[`Background!B${XL.BG_Q0 + i}`] = v;
   });
-  const notes = [st.characterNotes, st.notes].filter(Boolean).join("\n\n");
+  const notes = [
+    st.dooming?.text ? `Dooming (p.118${st.dooming.custom ? ", custom" : ""}): ${st.dooming.text}` : null,
+    st.characterNotes,
+    st.notes,
+  ].filter(Boolean).join("\n\n");
   if (notes) out[`Background!B${XL.BG_SECTIONS.notes}`] = notes;
   const app = [st.appearance.desc, st.appearance.age && `Age: ${st.appearance.age}`,
     st.appearance.height && `Height: ${st.appearance.height}`,
@@ -1073,14 +1273,15 @@ async function exportToExcel(st, opts = {}) {
   URL.revokeObjectURL(a.href);
 }
 
-/* global DATA, CHARS, CHAR_NAMES, SPECIES, SPECIES_ORDER, RANDOM_TALENTS, CLASS_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP,
+/* global DATA, CHARS, CHAR_NAMES, SPECIES, SPECIES_ORDER, RANDOM_TALENTS, DOOMINGS, CLASS_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP,
    PETTY_XP, TALENT_XP, ADVANCE_CAREER_XP, CHANGE_CAREER_XP, DEITIES, BLESSINGS_BY_CULT, COLOUR_LORES, OTHER_LORES,
    CHAOS_LORES, BACKGROUND_QUESTIONS, newState, rnd, rollDice, d100, bonus, skillBase, skillSpec, findSkill, findTalent,
-   findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, randomTalentFromRoll, baseChars,
-   charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, resolvedCareerSkills, creationSkillAdv,
+   findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, rollUniqueCareer, randomTalentFromRoll, doomingFromRoll, baseChars,
+   charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
+   resolvedCareerSkills, creationSkillAdv,
    isCareerSkill, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
    purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
-   ownedStorageLocations, containerStorageLabel, migrateState,
+   ownedStorageLocations, containerStorageLabel, migrateState, discardGearByKey, returnBuyItem, restoreDiscardedGear,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
    spellsOfLore, findSpell, findMiracle, skillMatchesEntry, exportToExcel */
 
@@ -1195,6 +1396,8 @@ function issues(st, key) {
     if (!st.careerTalent || !isResolved(st.careerTalent)) out.push("Choose one Talent from your Career's first level.");
     if (startingTrappings(st).some((t) => t.pending)) out.push("Resolve Trapping choices.");
     if (!st.wealth) out.push("Roll your starting wealth.");
+    if (hasTalent(st, "Doomed") && !st.dooming?.text) out.push("Roll your Dooming (Doomings table, p.118).");
+    out.push(...creationTalentDuplicateIssues(st));
   }
   if (key === "magic") {
     const M = magicProfile(st, D);
@@ -1273,7 +1476,7 @@ function viewCareer() {
   const rolls = S.careerRolls;
   if (!rolls.length) {
     rollBox = `<p>Roll on your Species' Career table. Keep the first result to start with <b>two</b> Trappings from Career level 2;
-      otherwise roll twice more and pick any of the three for <b>one</b> level-2 Trapping.</p>
+      otherwise roll twice more and pick any of the three for <b>one</b> level-2 Trapping. Duplicate careers on the extra rolls are rerolled automatically.</p>
       ${btn("rollCareer", "Roll d100 for Career", "", "primary")}`;
   } else {
     const names = rolls.map((r) => careerFromRoll(S.species, r));
@@ -1403,13 +1606,32 @@ function viewTalents() {
   if (sp.randomTalents) {
     const slots = Array.from({ length: sp.randomTalents }, (_, i) => {
       const rt = S.randomTalents[i];
-      if (!rt) return `<li>${S.manualRandom ? `<select data-act-change="manualRandom" data-arg="${i}">${opt("", "— choose —")}${RANDOM_TALENTS.map(([, n]) => opt(n)).join("")}</select>` : btn("rollRandomTalent", "Roll d100", String(i))}</li>`;
+      if (!rt) {
+        const picks = [...new Set(RANDOM_TALENTS.map(([, n]) => n))].filter((n) => canAddCreationTalent(S, n, { skipRandomIndex: i }));
+        return `<li>${S.manualRandom ? `<select data-act-change="manualRandom" data-arg="${i}">${opt("", "— choose —")}${picks.map((n) => opt(n)).join("")}</select>` : btn("rollRandomTalent", "Roll d100", String(i))}</li>`;
+      }
       const ch = parseChoice(rt.name);
       const label = ch.any ? choiceWidget(rt.base || rt.name, `randomTalents.${i}.name`) : talentLabel(rt.name);
       return `<li>${rt.roll ? `<span class="muted">${rt.roll}:</span> ` : ""}${label} ${btn("clearRandomTalent", "×", String(i), "sm")}</li>`;
     }).join("");
     rnd = `<h3>Random Talents (${sp.randomTalents}) ${pg(23)}</h3><ul>${slots}</ul>
       <label class="chk small"><input type="checkbox" data-bind="manualRandom" data-bool data-rerender ${S.manualRandom ? "checked" : ""}> Choose instead of rolling (with GM permission)</label>`;
+  }
+  let doom = "";
+  if (hasTalent(S, "Doomed")) {
+    const d = S.dooming;
+    const manualDoomUi = `<select data-act-change="manualDooming">${opt("", "— from table —")}${DOOMINGS.map(([, t]) => opt(t, t)).join("")}</select>
+        <div class="row add-custom">
+          <label class="grow">Custom dooming <input data-bind="_customDoomingText" value="${esc(S._customDoomingText || "")}" placeholder="GM-approved prophecy…"></label>
+          ${btn("setCustomDooming", "Use custom", "", "sm")}
+        </div>`;
+    const doomBody = !d?.text
+      ? (S.manualDooming ? manualDoomUi : btn("rollDooming", "Roll d100", "", "sm"))
+      : `<span>${d.roll != null ? `<span class="muted">${d.roll}:</span> ` : ""}${d.custom ? "<span class='tag'>custom</span> " : ""}<i>${esc(d.text)}</i> ${btn("clearDooming", "×", "", "sm")}</span>`;
+    doom = `<h3>DOOMINGS! ${pg(118)}</h3>
+      <p class="small">Your Character has the <b>Doomed</b> Talent — roll on the Doomings table, pick a result, or enter custom text (with GM permission).</p>
+      <p>${doomBody}</p>
+      <label class="chk small"><input type="checkbox" data-bind="manualDooming" data-bool data-rerender ${S.manualDooming ? "checked" : ""}> Choose or enter custom instead of rolling (with GM permission)</label>`;
   }
   const careerTal = c.levels[0].talents.map((t) => {
     const ch = parseChoice(t);
@@ -1425,7 +1647,7 @@ function viewTalents() {
   const lvl = c.levels[0];
   return `<h1>5. Talents, Trappings, and Final Details ${pg(39)}</h1>
     <div class="cols">
-      <div class="box"><h3>Species Talents</h3><ul>${spTal}</ul>${rnd}
+      <div class="box"><h3>Species Talents</h3><ul>${spTal}</ul>${rnd}${doom}
         <h3>Career Talent — choose 1 from ${esc(lvl.title)}</h3><ul>${careerTal}</ul>
         <p class="small">Hover a Talent to read its summary.</p></div>
       <div class="box"><h3>Starting Trappings</h3>
@@ -1520,6 +1742,23 @@ function containerPanels(containers) {
       <ul class="small">${c.items.length ? c.items.map((i) => `<li>${esc(i.name)} (${itemEnc(i)} Enc)</li>`).join("") : "<li class='muted'>Empty</li>"}</ul></div>`).join("")}`;
 }
 function purse() { return purseTotal(S); }
+function gearItemActions(it) {
+  const parts = [];
+  if (it.kind === "buy") parts.push(btn("sellItem", "Return", String(it.idx), "sm"));
+  parts.push(btn("discardGear", "Discard", it.key, "sm"));
+  return parts.join(" ");
+}
+function discardedGearPanel() {
+  const log = S.discardedLog || [];
+  if (!log.length) return "";
+  const rows = log.map((e, i) => {
+    const meta = [e.source, e.kind === "buy" && e.price != null ? `paid ${fmtMoney(e.price)}` : null, e.storageLoc].filter(Boolean);
+    return `<li><b>${esc(e.name)}</b>${meta.length ? ` <span class="muted small">(${esc(meta.join(" · "))})</span>` : ""} ${btn("restoreDiscarded", "Restore", String(i), "sm")}</li>`;
+  }).join("");
+  return `<h3>Discarded gear log</h3>
+    <p class="small">Discarded items leave your inventory until you <b>Restore</b> them here (or they stay off your sheet and export).</p>
+    <ul class="small discard-log">${rows}</ul>`;
+}
 function viewGear() {
   if (!S.career) return `<h1>Gear Shop</h1><p class="warn">Choose a Career first.</p>`;
   const D = derive(S);
@@ -1528,7 +1767,7 @@ function viewGear() {
   const money = purse();
   const inv = items.map((it) => `<tr><td>${esc(it.name)}</td><td class="muted small">${esc(it.source)}</td><td>${itemEnc(it)}</td>
     <td>${storageSelect(it, storageLocs)}</td>
-    <td>${it.kind === "buy" ? btn("sellItem", "Return", String(it.idx), "sm") : ""}${it.kind === "custom" ? btn("removeCustomItem", "Remove", String(it.idx), "sm") : ""}</td></tr>`).join("");
+    <td>${gearItemActions(it)}</td></tr>`).join("");
   const cashIn = (S.moneyAdded || []).map((m, i) => `<li>+ ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoney", "×", String(i), "sm")}</li>`).join("");
   const cashOut = (S.moneyLost || []).map((m, i) => `<li>− ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoneyLost", "×", String(i), "sm")}</li>`).join("");
   const tables = [...new Set(gearIndex().map((g) => g.table))];
@@ -1574,6 +1813,7 @@ function viewGear() {
         <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
         <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
         <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
+        ${discardedGearPanel()}
         ${containerPanels(containers)}</div>
       <div class="box shop"><h3>Market</h3>
         <input placeholder="Search…" value="${esc(shopFilter.q)}" data-shop="q">
@@ -1700,7 +1940,8 @@ function viewSheet() {
       <div><h3>Trappings</h3><p class="small">${items.map((i) => `${esc(i.name)} (${esc(itemStorageLoc(S, i.key))})`).join(", ")}</p>
         ${containers.length ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${c.label} ${c.used}/${c.capacity}`).join(" · ")}</p>` : ""}
         <p><b>Wealth:</b> ${fmtMoney(purse())}</p></div>
-      <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p></div>
+      <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p>
+        ${S.dooming?.text ? `<p><b>Dooming:</b> <i>${esc(S.dooming.text)}</i>${S.dooming.custom ? " <span class='muted small'>(custom)</span>" : ""}${S.dooming.roll != null ? ` <span class="muted small">(rolled ${S.dooming.roll})</span>` : ""}</p>` : ""}</div>
     </div>
     ${spells.length || blessings.length || miracles.length ? `<h3>Spells and Prayers</h3><table class="grid"><tr><th>Name</th><th>CN</th><th>Range</th><th>Target</th><th>Duration</th><th>Effect</th></tr>
       ${spells.map((s) => `<tr><td><b>${esc(s.name)}</b> <span class="muted small">${esc(s.lore)}</span></td><td>${esc(s.cn)}</td><td>${esc(s.range)}</td><td>${esc(s.target)}</td><td>${esc(s.duration)}</td><td class="small">${esc(s.desc)}</td></tr>`).join("")}
@@ -1758,8 +1999,7 @@ function viewAdvance() {
     const name = ch.fixed || (S._advChoice && S._advChoice[key]);
     const count = name ? talentCount(S, skillBase(name)) : 0;
     const info = findTalent(e.entry);
-    const owned = name && allTalents(S).some((t) => t.name === name);
-    const blocked = owned && !(info && info.multi);
+    const blocked = name && talentCount(S, skillBase(name)) >= talentStackLimit(name);
     return `<tr><td>${e.level}</td><td>${ch.fixed ? talentLabel(e.entry) : choiceWidget(e.entry, `_advChoice.${key}`)}</td><td>${count || ""}</td>
       <td>${btn("buyTalent", `Buy (${TALENT_XP})`, name || "", "sm", !name || !isResolved(name) || blocked || TALENT_XP > avail)}</td></tr>`;
   }).join("");
@@ -1850,7 +2090,7 @@ function resetCareerDependent() {
   Object.assign(S, { careerSkillChoice: {}, careerAdv: {}, careerTalent: null, careerTalentEntry: null, trappingChoice: {}, l2Trappings: [], wealth: null, charBonus: {} });
 }
 function resetSpeciesDependent() {
-  Object.assign(S, { speciesSkills: [], speciesTalentChoice: {}, randomTalents: [], career: null, careerMode: null, careerRolls: [] });
+  Object.assign(S, { speciesSkills: [], speciesTalentChoice: {}, randomTalents: [], dooming: null, career: null, careerMode: null, careerRolls: [] });
   resetCareerDependent();
 }
 const ACTIONS = {
@@ -1869,7 +2109,11 @@ const ACTIONS = {
   rollHair: () => { S.appearance.hair = pick(SPECIES[S.species].hair); },
   rollCareer: () => { if (!S.careerRolls.length) { S.careerRolls = [d100()]; } },
   keepCareer: () => { const n = careerFromRoll(S.species, S.careerRolls[0]); resetCareerDependent(); S.career = n; S.careerMode = "first"; S.ticks = 0; },
-  rollCareer2: () => { S.careerRolls.push(d100(), d100()); },
+  rollCareer2: () => {
+    if (S.careerRolls.length !== 1) return;
+    S.careerRolls.push(rollUniqueCareer(S.species, S.careerRolls));
+    S.careerRolls.push(rollUniqueCareer(S.species, S.careerRolls));
+  },
   pickCareerRoll: (i) => { resetCareerDependent(); S.career = careerFromRoll(S.species, S.careerRolls[+i]); S.careerMode = "three"; S.ticks = 0; },
   chooseCareer: (name) => { if (!name) return; resetCareerDependent(); S.career = name; S.careerMode = null; S.ticks = 0; if (!S.careerRolls.length) S.careerRolls = []; },
   toggleL2: (t) => {
@@ -1911,14 +2155,44 @@ const ACTIONS = {
   },
   speciesTalent: (arg) => { const [i, n] = arg.split("|"); S.speciesTalentChoice[i] = n; },
   rollRandomTalent: (i) => {
-    const owned = creationTalents(S).map((t) => skillBase(t.name));
+    const slot = +i;
     let r, name, guard = 0;
-    do { r = d100(); name = randomTalentFromRoll(r); guard++; } while (owned.includes(skillBase(name)) && guard < 100);
-    S.randomTalents[+i] = { roll: r, name, base: name };
+    do {
+      r = d100();
+      name = randomTalentFromRoll(r);
+      guard++;
+    } while (!canAddCreationTalent(S, name, { skipRandomIndex: slot }) && guard < 200);
+    S.randomTalents[slot] = { roll: r, name, base: name };
   },
-  manualRandom: (i, el) => { if (el.value) S.randomTalents[+i] = { roll: null, name: el.value, base: el.value }; },
+  manualRandom: (i, el) => {
+    if (!el.value) return;
+    if (!canAddCreationTalent(S, el.value, { skipRandomIndex: +i })) {
+      alert(`You cannot take ${el.value} again — only Talents marked as stackable (e.g. Strong Back) may be taken twice.`);
+      return;
+    }
+    S.randomTalents[+i] = { roll: null, name: el.value, base: el.value };
+  },
   clearRandomTalent: (i) => { S.randomTalents[+i] = null; },
-  careerTalent: (t) => { S.careerTalentEntry = t; S.careerTalent = parseChoice(t).fixed || null; },
+  rollDooming: () => {
+    const r = d100();
+    S.dooming = { roll: r, text: doomingFromRoll(r) };
+  },
+  manualDooming: (_, el) => { if (el.value) S.dooming = { roll: null, text: el.value, custom: false }; },
+  setCustomDooming: () => {
+    const text = (S._customDoomingText || "").trim();
+    if (!text) { alert("Enter custom dooming text."); return; }
+    S.dooming = { roll: null, text, custom: true };
+  },
+  clearDooming: () => { S.dooming = null; },
+  careerTalent: (t) => {
+    const ch = parseChoice(t);
+    if (ch.fixed && !canAddCreationTalent(S, ch.fixed, { skipCareer: true })) {
+      alert(`You already have ${ch.fixed} from Species or Random Talents — pick a different Career Talent.`);
+      return;
+    }
+    S.careerTalentEntry = t;
+    S.careerTalent = ch.fixed || null;
+  },
   rollWealth: () => { const c = findCareer(S.career); S.wealth = rollWealth(c.levels[0]); },
   toggleSpell: (n) => { const i = S.spells.indexOf(n); if (i >= 0) S.spells.splice(i, 1); else S.spells.push(n); },
   toggleMiracle: (n) => { const i = S.miracles.indexOf(n); if (i >= 0) S.miracles.splice(i, 1); else S.miracles.push(n); },
@@ -1928,7 +2202,15 @@ const ACTIONS = {
     if (S.worn) delete S.worn[key];
   },
   buyItem: (gi) => { const g = gearIndex()[+gi]; S.inventory.push({ name: g.name, price: g.price, enc: g.enc }); },
-  sellItem: (i) => { S.inventory.splice(+i, 1); },
+  sellItem: (i) => { returnBuyItem(S, +i); },
+  discardGear: (key) => {
+    const msg = key.startsWith("buy:")
+      ? "Discard this item? It moves to the discarded log (no shop refund until you restore it)."
+      : "Discard this item? It moves to the discarded log below.";
+    if (!confirm(msg)) return;
+    discardGearByKey(S, key);
+  },
+  restoreDiscarded: (i) => { restoreDiscardedGear(S, +i); },
   addCustomItem: () => {
     const name = (S._customName || "").trim();
     if (!name) { alert("Enter a name for the custom item."); return; }
@@ -1936,7 +2218,6 @@ const ACTIONS = {
     S.customItems.push({ name, enc: S._customEnc == null || S._customEnc === "" ? 0 : +S._customEnc, category: S._customCat || "trap" });
     S._customName = ""; S._customEnc = ""; S._customCat = "trap";
   },
-  removeCustomItem: (i) => { S.customItems.splice(+i, 1); },
   addMoney: () => {
     const gc = +S._addGC || 0; const ss = +S._addSS || 0; const dd = +S._addDD || 0;
     const pennies = gc * 240 + ss * 12 + dd;
@@ -2079,7 +2360,15 @@ function applyBind(el) {
   }
   if (el.dataset.wrap !== undefined) v = v.trim() ? `${el.dataset.wrap} (${v.trim()})` : null;
   if (v === "") v = el.tagName === "SELECT" ? null : "";
-  setPath(S, el.dataset.bind, v);
+  const bind = el.dataset.bind;
+  if (bind === "careerTalent" || /^randomTalents\.\d+\.name$/.test(bind)) {
+    if (v && !canAddCreationTalent(S, v, bind === "careerTalent" ? { skipCareer: true } : { skipRandomIndex: +bind.split(".")[1] })) {
+      alert(`You cannot take ${skillBase(v)} again — only stackable Talents (e.g. Strong Back) may be taken twice at creation.`);
+      render();
+      return;
+    }
+  }
+  setPath(S, bind, v);
   if (el.dataset.bind.startsWith("careerSkillChoice") || el.dataset.bind.startsWith("speciesSkills")) onCareerSkillChoiceChanged();
 }
 document.addEventListener("input", (ev) => {

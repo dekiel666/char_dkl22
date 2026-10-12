@@ -1,11 +1,12 @@
-/* global DATA, CHARS, CHAR_NAMES, SPECIES, SPECIES_ORDER, RANDOM_TALENTS, CLASS_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP,
+/* global DATA, CHARS, CHAR_NAMES, SPECIES, SPECIES_ORDER, RANDOM_TALENTS, DOOMINGS, CLASS_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP,
    PETTY_XP, TALENT_XP, ADVANCE_CAREER_XP, CHANGE_CAREER_XP, DEITIES, BLESSINGS_BY_CULT, COLOUR_LORES, OTHER_LORES,
    CHAOS_LORES, BACKGROUND_QUESTIONS, newState, rnd, rollDice, d100, bonus, skillBase, skillSpec, findSkill, findTalent,
-   findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, randomTalentFromRoll, baseChars,
-   charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, resolvedCareerSkills, creationSkillAdv,
+   findCareer, speciesCareers, parseChoice, isResolved, speciesFromRoll, careerFromRoll, rollUniqueCareer, randomTalentFromRoll, doomingFromRoll, baseChars,
+   charBonusLimit, creationTalents, allTalents, talentCount, hasTalent, talentStackLimit, canAddCreationTalent, creationTalentDuplicateIssues,
+   resolvedCareerSkills, creationSkillAdv,
    isCareerSkill, careerLevelSkills, derive, parsePrice, fmtMoney, rollWealth, gearIndex, findGear, encOf,
    purseTotal, extraMoneyPennies, itemEnc, inventoryItems, computeEncumbrance, itemStorageLoc,
-   ownedStorageLocations, containerStorageLabel, migrateState,
+   ownedStorageLocations, containerStorageLabel, migrateState, discardGearByKey, returnBuyItem, restoreDiscardedGear,
    startingTrappings, advCost, spellCost, charAvailable, careerTalentEntries, ticksNeeded, xpSpent, magicProfile,
    spellsOfLore, findSpell, findMiracle, skillMatchesEntry, exportToExcel */
 
@@ -120,6 +121,8 @@ function issues(st, key) {
     if (!st.careerTalent || !isResolved(st.careerTalent)) out.push("Choose one Talent from your Career's first level.");
     if (startingTrappings(st).some((t) => t.pending)) out.push("Resolve Trapping choices.");
     if (!st.wealth) out.push("Roll your starting wealth.");
+    if (hasTalent(st, "Doomed") && !st.dooming?.text) out.push("Roll your Dooming (Doomings table, p.118).");
+    out.push(...creationTalentDuplicateIssues(st));
   }
   if (key === "magic") {
     const M = magicProfile(st, D);
@@ -198,7 +201,7 @@ function viewCareer() {
   const rolls = S.careerRolls;
   if (!rolls.length) {
     rollBox = `<p>Roll on your Species' Career table. Keep the first result to start with <b>two</b> Trappings from Career level 2;
-      otherwise roll twice more and pick any of the three for <b>one</b> level-2 Trapping.</p>
+      otherwise roll twice more and pick any of the three for <b>one</b> level-2 Trapping. Duplicate careers on the extra rolls are rerolled automatically.</p>
       ${btn("rollCareer", "Roll d100 for Career", "", "primary")}`;
   } else {
     const names = rolls.map((r) => careerFromRoll(S.species, r));
@@ -328,13 +331,32 @@ function viewTalents() {
   if (sp.randomTalents) {
     const slots = Array.from({ length: sp.randomTalents }, (_, i) => {
       const rt = S.randomTalents[i];
-      if (!rt) return `<li>${S.manualRandom ? `<select data-act-change="manualRandom" data-arg="${i}">${opt("", "— choose —")}${RANDOM_TALENTS.map(([, n]) => opt(n)).join("")}</select>` : btn("rollRandomTalent", "Roll d100", String(i))}</li>`;
+      if (!rt) {
+        const picks = [...new Set(RANDOM_TALENTS.map(([, n]) => n))].filter((n) => canAddCreationTalent(S, n, { skipRandomIndex: i }));
+        return `<li>${S.manualRandom ? `<select data-act-change="manualRandom" data-arg="${i}">${opt("", "— choose —")}${picks.map((n) => opt(n)).join("")}</select>` : btn("rollRandomTalent", "Roll d100", String(i))}</li>`;
+      }
       const ch = parseChoice(rt.name);
       const label = ch.any ? choiceWidget(rt.base || rt.name, `randomTalents.${i}.name`) : talentLabel(rt.name);
       return `<li>${rt.roll ? `<span class="muted">${rt.roll}:</span> ` : ""}${label} ${btn("clearRandomTalent", "×", String(i), "sm")}</li>`;
     }).join("");
     rnd = `<h3>Random Talents (${sp.randomTalents}) ${pg(23)}</h3><ul>${slots}</ul>
       <label class="chk small"><input type="checkbox" data-bind="manualRandom" data-bool data-rerender ${S.manualRandom ? "checked" : ""}> Choose instead of rolling (with GM permission)</label>`;
+  }
+  let doom = "";
+  if (hasTalent(S, "Doomed")) {
+    const d = S.dooming;
+    const manualDoomUi = `<select data-act-change="manualDooming">${opt("", "— from table —")}${DOOMINGS.map(([, t]) => opt(t, t)).join("")}</select>
+        <div class="row add-custom">
+          <label class="grow">Custom dooming <input data-bind="_customDoomingText" value="${esc(S._customDoomingText || "")}" placeholder="GM-approved prophecy…"></label>
+          ${btn("setCustomDooming", "Use custom", "", "sm")}
+        </div>`;
+    const doomBody = !d?.text
+      ? (S.manualDooming ? manualDoomUi : btn("rollDooming", "Roll d100", "", "sm"))
+      : `<span>${d.roll != null ? `<span class="muted">${d.roll}:</span> ` : ""}${d.custom ? "<span class='tag'>custom</span> " : ""}<i>${esc(d.text)}</i> ${btn("clearDooming", "×", "", "sm")}</span>`;
+    doom = `<h3>DOOMINGS! ${pg(118)}</h3>
+      <p class="small">Your Character has the <b>Doomed</b> Talent — roll on the Doomings table, pick a result, or enter custom text (with GM permission).</p>
+      <p>${doomBody}</p>
+      <label class="chk small"><input type="checkbox" data-bind="manualDooming" data-bool data-rerender ${S.manualDooming ? "checked" : ""}> Choose or enter custom instead of rolling (with GM permission)</label>`;
   }
   const careerTal = c.levels[0].talents.map((t) => {
     const ch = parseChoice(t);
@@ -350,7 +372,7 @@ function viewTalents() {
   const lvl = c.levels[0];
   return `<h1>5. Talents, Trappings, and Final Details ${pg(39)}</h1>
     <div class="cols">
-      <div class="box"><h3>Species Talents</h3><ul>${spTal}</ul>${rnd}
+      <div class="box"><h3>Species Talents</h3><ul>${spTal}</ul>${rnd}${doom}
         <h3>Career Talent — choose 1 from ${esc(lvl.title)}</h3><ul>${careerTal}</ul>
         <p class="small">Hover a Talent to read its summary.</p></div>
       <div class="box"><h3>Starting Trappings</h3>
@@ -445,6 +467,23 @@ function containerPanels(containers) {
       <ul class="small">${c.items.length ? c.items.map((i) => `<li>${esc(i.name)} (${itemEnc(i)} Enc)</li>`).join("") : "<li class='muted'>Empty</li>"}</ul></div>`).join("")}`;
 }
 function purse() { return purseTotal(S); }
+function gearItemActions(it) {
+  const parts = [];
+  if (it.kind === "buy") parts.push(btn("sellItem", "Return", String(it.idx), "sm"));
+  parts.push(btn("discardGear", "Discard", it.key, "sm"));
+  return parts.join(" ");
+}
+function discardedGearPanel() {
+  const log = S.discardedLog || [];
+  if (!log.length) return "";
+  const rows = log.map((e, i) => {
+    const meta = [e.source, e.kind === "buy" && e.price != null ? `paid ${fmtMoney(e.price)}` : null, e.storageLoc].filter(Boolean);
+    return `<li><b>${esc(e.name)}</b>${meta.length ? ` <span class="muted small">(${esc(meta.join(" · "))})</span>` : ""} ${btn("restoreDiscarded", "Restore", String(i), "sm")}</li>`;
+  }).join("");
+  return `<h3>Discarded gear log</h3>
+    <p class="small">Discarded items leave your inventory until you <b>Restore</b> them here (or they stay off your sheet and export).</p>
+    <ul class="small discard-log">${rows}</ul>`;
+}
 function viewGear() {
   if (!S.career) return `<h1>Gear Shop</h1><p class="warn">Choose a Career first.</p>`;
   const D = derive(S);
@@ -453,7 +492,7 @@ function viewGear() {
   const money = purse();
   const inv = items.map((it) => `<tr><td>${esc(it.name)}</td><td class="muted small">${esc(it.source)}</td><td>${itemEnc(it)}</td>
     <td>${storageSelect(it, storageLocs)}</td>
-    <td>${it.kind === "buy" ? btn("sellItem", "Return", String(it.idx), "sm") : ""}${it.kind === "custom" ? btn("removeCustomItem", "Remove", String(it.idx), "sm") : ""}</td></tr>`).join("");
+    <td>${gearItemActions(it)}</td></tr>`).join("");
   const cashIn = (S.moneyAdded || []).map((m, i) => `<li>+ ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoney", "×", String(i), "sm")}</li>`).join("");
   const cashOut = (S.moneyLost || []).map((m, i) => `<li>− ${fmtMoney(m.pennies)}${m.note ? ` — ${esc(m.note)}` : ""} ${btn("removeMoneyLost", "×", String(i), "sm")}</li>`).join("");
   const tables = [...new Set(gearIndex().map((g) => g.table))];
@@ -499,6 +538,7 @@ function viewGear() {
         <h3>On your person — Enc <span class="${total > D.enc ? "warn" : "ok"}">${total} / ${D.enc}</span></h3>
         <p class="small">Set location to <b>Worn</b> (−1 Enc on you) or stow items inside a container you carry.</p>
         <table class="grid"><tr><th>Item</th><th>Source</th><th>Enc</th><th>Location</th><th></th></tr>${inv}</table>
+        ${discardedGearPanel()}
         ${containerPanels(containers)}</div>
       <div class="box shop"><h3>Market</h3>
         <input placeholder="Search…" value="${esc(shopFilter.q)}" data-shop="q">
@@ -625,7 +665,8 @@ function viewSheet() {
       <div><h3>Trappings</h3><p class="small">${items.map((i) => `${esc(i.name)} (${esc(itemStorageLoc(S, i.key))})`).join(", ")}</p>
         ${containers.length ? `<p class="small"><b>Containers:</b> ${containers.map((c) => `${c.label} ${c.used}/${c.capacity}`).join(" · ")}</p>` : ""}
         <p><b>Wealth:</b> ${fmtMoney(purse())}</p></div>
-      <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p></div>
+      <div><h3>Ambitions</h3><p><b>Personal:</b> ${esc(S.ambition)}</p><p><b>Party:</b> ${esc(S.partyAmbition)}</p>
+        ${S.dooming?.text ? `<p><b>Dooming:</b> <i>${esc(S.dooming.text)}</i>${S.dooming.custom ? " <span class='muted small'>(custom)</span>" : ""}${S.dooming.roll != null ? ` <span class="muted small">(rolled ${S.dooming.roll})</span>` : ""}</p>` : ""}</div>
     </div>
     ${spells.length || blessings.length || miracles.length ? `<h3>Spells and Prayers</h3><table class="grid"><tr><th>Name</th><th>CN</th><th>Range</th><th>Target</th><th>Duration</th><th>Effect</th></tr>
       ${spells.map((s) => `<tr><td><b>${esc(s.name)}</b> <span class="muted small">${esc(s.lore)}</span></td><td>${esc(s.cn)}</td><td>${esc(s.range)}</td><td>${esc(s.target)}</td><td>${esc(s.duration)}</td><td class="small">${esc(s.desc)}</td></tr>`).join("")}
@@ -683,8 +724,7 @@ function viewAdvance() {
     const name = ch.fixed || (S._advChoice && S._advChoice[key]);
     const count = name ? talentCount(S, skillBase(name)) : 0;
     const info = findTalent(e.entry);
-    const owned = name && allTalents(S).some((t) => t.name === name);
-    const blocked = owned && !(info && info.multi);
+    const blocked = name && talentCount(S, skillBase(name)) >= talentStackLimit(name);
     return `<tr><td>${e.level}</td><td>${ch.fixed ? talentLabel(e.entry) : choiceWidget(e.entry, `_advChoice.${key}`)}</td><td>${count || ""}</td>
       <td>${btn("buyTalent", `Buy (${TALENT_XP})`, name || "", "sm", !name || !isResolved(name) || blocked || TALENT_XP > avail)}</td></tr>`;
   }).join("");
@@ -775,7 +815,7 @@ function resetCareerDependent() {
   Object.assign(S, { careerSkillChoice: {}, careerAdv: {}, careerTalent: null, careerTalentEntry: null, trappingChoice: {}, l2Trappings: [], wealth: null, charBonus: {} });
 }
 function resetSpeciesDependent() {
-  Object.assign(S, { speciesSkills: [], speciesTalentChoice: {}, randomTalents: [], career: null, careerMode: null, careerRolls: [] });
+  Object.assign(S, { speciesSkills: [], speciesTalentChoice: {}, randomTalents: [], dooming: null, career: null, careerMode: null, careerRolls: [] });
   resetCareerDependent();
 }
 const ACTIONS = {
@@ -794,7 +834,11 @@ const ACTIONS = {
   rollHair: () => { S.appearance.hair = pick(SPECIES[S.species].hair); },
   rollCareer: () => { if (!S.careerRolls.length) { S.careerRolls = [d100()]; } },
   keepCareer: () => { const n = careerFromRoll(S.species, S.careerRolls[0]); resetCareerDependent(); S.career = n; S.careerMode = "first"; S.ticks = 0; },
-  rollCareer2: () => { S.careerRolls.push(d100(), d100()); },
+  rollCareer2: () => {
+    if (S.careerRolls.length !== 1) return;
+    S.careerRolls.push(rollUniqueCareer(S.species, S.careerRolls));
+    S.careerRolls.push(rollUniqueCareer(S.species, S.careerRolls));
+  },
   pickCareerRoll: (i) => { resetCareerDependent(); S.career = careerFromRoll(S.species, S.careerRolls[+i]); S.careerMode = "three"; S.ticks = 0; },
   chooseCareer: (name) => { if (!name) return; resetCareerDependent(); S.career = name; S.careerMode = null; S.ticks = 0; if (!S.careerRolls.length) S.careerRolls = []; },
   toggleL2: (t) => {
@@ -836,14 +880,44 @@ const ACTIONS = {
   },
   speciesTalent: (arg) => { const [i, n] = arg.split("|"); S.speciesTalentChoice[i] = n; },
   rollRandomTalent: (i) => {
-    const owned = creationTalents(S).map((t) => skillBase(t.name));
+    const slot = +i;
     let r, name, guard = 0;
-    do { r = d100(); name = randomTalentFromRoll(r); guard++; } while (owned.includes(skillBase(name)) && guard < 100);
-    S.randomTalents[+i] = { roll: r, name, base: name };
+    do {
+      r = d100();
+      name = randomTalentFromRoll(r);
+      guard++;
+    } while (!canAddCreationTalent(S, name, { skipRandomIndex: slot }) && guard < 200);
+    S.randomTalents[slot] = { roll: r, name, base: name };
   },
-  manualRandom: (i, el) => { if (el.value) S.randomTalents[+i] = { roll: null, name: el.value, base: el.value }; },
+  manualRandom: (i, el) => {
+    if (!el.value) return;
+    if (!canAddCreationTalent(S, el.value, { skipRandomIndex: +i })) {
+      alert(`You cannot take ${el.value} again — only Talents marked as stackable (e.g. Strong Back) may be taken twice.`);
+      return;
+    }
+    S.randomTalents[+i] = { roll: null, name: el.value, base: el.value };
+  },
   clearRandomTalent: (i) => { S.randomTalents[+i] = null; },
-  careerTalent: (t) => { S.careerTalentEntry = t; S.careerTalent = parseChoice(t).fixed || null; },
+  rollDooming: () => {
+    const r = d100();
+    S.dooming = { roll: r, text: doomingFromRoll(r) };
+  },
+  manualDooming: (_, el) => { if (el.value) S.dooming = { roll: null, text: el.value, custom: false }; },
+  setCustomDooming: () => {
+    const text = (S._customDoomingText || "").trim();
+    if (!text) { alert("Enter custom dooming text."); return; }
+    S.dooming = { roll: null, text, custom: true };
+  },
+  clearDooming: () => { S.dooming = null; },
+  careerTalent: (t) => {
+    const ch = parseChoice(t);
+    if (ch.fixed && !canAddCreationTalent(S, ch.fixed, { skipCareer: true })) {
+      alert(`You already have ${ch.fixed} from Species or Random Talents — pick a different Career Talent.`);
+      return;
+    }
+    S.careerTalentEntry = t;
+    S.careerTalent = ch.fixed || null;
+  },
   rollWealth: () => { const c = findCareer(S.career); S.wealth = rollWealth(c.levels[0]); },
   toggleSpell: (n) => { const i = S.spells.indexOf(n); if (i >= 0) S.spells.splice(i, 1); else S.spells.push(n); },
   toggleMiracle: (n) => { const i = S.miracles.indexOf(n); if (i >= 0) S.miracles.splice(i, 1); else S.miracles.push(n); },
@@ -853,7 +927,15 @@ const ACTIONS = {
     if (S.worn) delete S.worn[key];
   },
   buyItem: (gi) => { const g = gearIndex()[+gi]; S.inventory.push({ name: g.name, price: g.price, enc: g.enc }); },
-  sellItem: (i) => { S.inventory.splice(+i, 1); },
+  sellItem: (i) => { returnBuyItem(S, +i); },
+  discardGear: (key) => {
+    const msg = key.startsWith("buy:")
+      ? "Discard this item? It moves to the discarded log (no shop refund until you restore it)."
+      : "Discard this item? It moves to the discarded log below.";
+    if (!confirm(msg)) return;
+    discardGearByKey(S, key);
+  },
+  restoreDiscarded: (i) => { restoreDiscardedGear(S, +i); },
   addCustomItem: () => {
     const name = (S._customName || "").trim();
     if (!name) { alert("Enter a name for the custom item."); return; }
@@ -861,7 +943,6 @@ const ACTIONS = {
     S.customItems.push({ name, enc: S._customEnc == null || S._customEnc === "" ? 0 : +S._customEnc, category: S._customCat || "trap" });
     S._customName = ""; S._customEnc = ""; S._customCat = "trap";
   },
-  removeCustomItem: (i) => { S.customItems.splice(+i, 1); },
   addMoney: () => {
     const gc = +S._addGC || 0; const ss = +S._addSS || 0; const dd = +S._addDD || 0;
     const pennies = gc * 240 + ss * 12 + dd;
@@ -1004,7 +1085,15 @@ function applyBind(el) {
   }
   if (el.dataset.wrap !== undefined) v = v.trim() ? `${el.dataset.wrap} (${v.trim()})` : null;
   if (v === "") v = el.tagName === "SELECT" ? null : "";
-  setPath(S, el.dataset.bind, v);
+  const bind = el.dataset.bind;
+  if (bind === "careerTalent" || /^randomTalents\.\d+\.name$/.test(bind)) {
+    if (v && !canAddCreationTalent(S, v, bind === "careerTalent" ? { skipCareer: true } : { skipRandomIndex: +bind.split(".")[1] })) {
+      alert(`You cannot take ${skillBase(v)} again — only stackable Talents (e.g. Strong Back) may be taken twice at creation.`);
+      render();
+      return;
+    }
+  }
+  setPath(S, bind, v);
   if (el.dataset.bind.startsWith("careerSkillChoice") || el.dataset.bind.startsWith("speciesSkills")) onCareerSkillChoiceChanged();
 }
 document.addEventListener("input", (ev) => {

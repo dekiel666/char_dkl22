@@ -97,6 +97,42 @@ const RANDOM_TALENTS = [
   [87, "Supportive"], [90, "Tinker"], [92, "Tunnel Fighter"], [95, "Very Resilient"], [97, "Very Strong"], [100, "Warrior Born"],
 ];
 
+/** Doomings table (page 118) — roll when your Character has the Doomed Talent. */
+const DOOMINGS = [
+  [3, "The witch’s word shall write your doom."],
+  [6, "Beware the sign of the crimson sun."],
+  [9, "Thine mind lingers overlong in the land of dreams."],
+  [12, "Tread not upon the tender roots of sleeping trees."],
+  [15, "Trust not the signs of Ranald."],
+  [18, "Hold thine breath under Morrslieb’s light, lest darkness take root in thine soul."],
+  [21, "Fear the land bereft of the seagull’s cry."],
+  [24, "Be thou impious upon a Mondstille night and thou wilt never see another."],
+  [28, "Trust not in the strength of bridges if the day be a Festag."],
+  [31, "The children of Ulric call, with haste thou wilt fall."],
+  [34, "A night without song precedes a morning without waking."],
+  [38, "For the want of a key, that’s the ending of thee."],
+  [41, "An ogre may name you his most valuable boon and yet remain an ogre."],
+  [44, "It ringeth once: peace. It ringeth twice: pleasure. It ringeth thrice: death."],
+  [47, "The Twisted Puppeteer doth pull thy strings and thus conjure up the end of things."],
+  [50, "Ottokar dared to court the divine, but to do so is no right of thine."],
+  [52, "Recall young Tomas and provoke not the beast of the woods."],
+  [55, "Be thou circumspect when carousing with dwarfs."],
+  [58, "Plague and dark disease shall bring thee quickly to thy knees."],
+  [62, "The sword shalt deliver no justice, only thine end."],
+  [65, "The sticky bun! The pork pasty! The eel and leek pie! Lo, they are Morr’s dishes!"],
+  [68, "Strain thou not the patience of the weary Shallyan."],
+  [71, "A lurker in goblin shape waits to waylay every treasure seeker."],
+  [74, "Recall Baron Trister and honour thy debts."],
+  [78, "Keep the relic of a crow’s skull upon thee, lest thee drink poison and perish."],
+  [81, "When thou wager with elves, win thou may, lose thou may, but cheat thou not."],
+  [84, "Laugh not in the face of the flatulent lest thine own guts fester."],
+  [87, "Never was there one such as thee, who drowned on land and not at sea."],
+  [91, "As new life cries out, Father Morr shall welcome thee."],
+  [94, "Heed the siren’s trilling, or soon your heart lies still."],
+  [97, "Rise not before Cacklefax’s calling, for thine death is early indeed."],
+  [100, "Morr sends a maiden."],
+];
+
 // Random Class and Career table (pages 36-37): ranges per species, in order human, dwarf, halfling, highelf, woodelf.
 const CAREER_TABLE = {
   Apothecary: ["1", "1", "1", "1-2", ""], Engineer: ["2", "2-4", "2", "", ""], Lawyer: ["3", "5-6", "3-4", "3-6", ""],

@@ -34,7 +34,7 @@ h3 { color: #5b1414; }
 .cols > .box { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin: 8px 0; }
 .row label.grow { flex: 1 1 160px; }
-.cash-log { margin: 6px 0; padding-left: 1.2em; }
+.cash-log, .discard-log { margin: 6px 0; padding-left: 1.2em; }
 .container-box { margin-top: 10px; }
 .container-box ul { margin: 4px 0 0; padding-left: 1.2em; }
 .char-other input.num { width: 3.2em; text-align: center; }

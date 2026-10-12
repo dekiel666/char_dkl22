@@ -1,4 +1,4 @@
-/* global DATA, CHARS, SPECIES, SPECIES_TABLE, RANDOM_TALENTS, CAREER_TABLE, SPECIES_ORDER, CLASS_TRAPPINGS,
+/* global DATA, CHARS, SPECIES, SPECIES_TABLE, RANDOM_TALENTS, DOOMINGS, CAREER_TABLE, SPECIES_ORDER, CLASS_TRAPPINGS,
    BASE_TRAPPINGS, CHAR_XP, SKILL_XP, SPELL_XP, PETTY_XP, LEVEL_TICKS, COLOUR_LORES */
 
 const rnd = (sides) => 1 + Math.floor(Math.random() * sides);
@@ -8,14 +8,15 @@ const bonus = (v) => Math.floor(v / 10);
 
 function newState() {
   return {
-    version: 3, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
+    version: 4, name: "", appearance: { age: "", height: "", eyes: "", hair: "", desc: "" },
     species: null, speciesMode: null, speciesRoll: null,
     career: null, careerMode: null, careerRolls: [], l2Trappings: [],
     charMethod: null, rollsA: null, rollsC: null, assign: null, points: null, charBonus: {}, charOther: {},
     speciesSkills: [], careerSkillChoice: {}, careerAdv: {},
-    speciesTalentChoice: {}, randomTalents: [], manualRandom: false, careerTalent: null, talentChoice: {},
+    speciesTalentChoice: {}, randomTalents: [], manualRandom: false,
+    dooming: null, manualDooming: false, careerTalent: null, talentChoice: {},
     trappingChoice: {}, wealth: null, moneyAdded: [], moneyLost: [], inventory: [], customItems: [],
-    itemLoc: {}, purse: null,
+    itemLoc: {}, removedGear: [], gearDiscardedSpend: 0, discardedLog: [], purse: null,
     lore: null, deity: null, spells: [], miracles: [],
     ambition: "", partyAmbition: "", bg: {}, notes: "", characterNotes: "",
     xp: { total: 0, log: [] }, adv: { chars: {}, skills: {} }, boughtTalents: [],
@@ -89,7 +90,20 @@ function careerFromRoll(sid, r) {
   }
   return null;
 }
+/** Roll d100 until the career differs from careers already represented in rolls (rulebook: reroll duplicates). */
+function rollUniqueCareer(sid, rollsSoFar) {
+  const taken = new Set(rollsSoFar.map((r) => careerFromRoll(sid, r)).filter(Boolean));
+  let guard = 0;
+  do {
+    const r = d100();
+    const name = careerFromRoll(sid, r);
+    guard++;
+    if (name && !taken.has(name)) return r;
+  } while (guard < 200);
+  return d100();
+}
 function randomTalentFromRoll(r) { return RANDOM_TALENTS.find(([max]) => r <= max)[1]; }
+function doomingFromRoll(r) { return DOOMINGS.find(([max]) => r <= max)[1]; }
 
 /* ---------- characteristics ---------- */
 function baseChars(st) {
@@ -110,6 +124,49 @@ function baseChars(st) {
 const charBonusLimit = (st) => ({ A: 6, B: 3 }[st.charMethod] || 0);
 
 /* ---------- talents ---------- */
+function talentStackLimit(nameOrInfo) {
+  const info = typeof nameOrInfo === "string" ? findTalent(nameOrInfo) : nameOrInfo;
+  return info?.multi ? 2 : 1;
+}
+
+function countCreationTalentBase(st, base, opts = {}) {
+  let n = 0;
+  const sp = SPECIES[st.species];
+  if (sp) {
+    sp.talents.forEach((t, i) => {
+      const ch = parseChoice(t);
+      const nm = ch.fixed || st.speciesTalentChoice[i];
+      if (nm && skillBase(nm) === base) n++;
+    });
+    (st.randomTalents || []).forEach((rt, ri) => {
+      if (opts.skipRandomIndex === ri) return;
+      if (rt?.name && skillBase(rt.name) === base) n++;
+    });
+  }
+  if (!opts.skipCareer && st.careerTalent && skillBase(st.careerTalent) === base) n++;
+  return n;
+}
+
+function canAddCreationTalent(st, name, opts = {}) {
+  if (!name) return false;
+  const base = skillBase(name);
+  return countCreationTalentBase(st, base, opts) < talentStackLimit(base);
+}
+
+function creationTalentDuplicateIssues(st) {
+  const tally = new Map();
+  creationTalents(st).forEach((t) => {
+    const b = skillBase(t.name);
+    tally.set(b, (tally.get(b) || 0) + 1);
+  });
+  const out = [];
+  tally.forEach((count, base) => {
+    const limit = talentStackLimit(base);
+    if (count > limit) out.push(`Talent “${base}” is taken ${count} times (maximum ${limit} at creation).`);
+  });
+  return out;
+}
+
 function creationTalents(st) {
   const list = [];
   const sp = SPECIES[st.species];
@@ -307,9 +364,120 @@ function extraMoneyPennies(st) {
   const lost = (st.moneyLost || []).reduce((a, m) => a + (m.pennies || 0), 0);
   return add - lost;
 }
+function gearSpent(st) {
+  const inv = (st.inventory || []).reduce((a, it) => a + (it.price || 0), 0);
+  return inv + (st.gearDiscardedSpend || 0);
+}
 function purseTotal(st) {
-  const spent = (st.inventory || []).reduce((a, it) => a + (it.price || 0), 0);
-  return (st.wealth ? st.wealth.pennies : 0) + extraMoneyPennies(st) - spent;
+  return (st.wealth ? st.wealth.pennies : 0) + extraMoneyPennies(st) - gearSpent(st);
+}
+
+function remapIndexedItemLoc(st, prefix, removedIndex) {
+  const re = new RegExp(`^${prefix}:(\\d+)$`);
+  const next = {};
+  Object.entries(st.itemLoc || {}).forEach(([k, v]) => {
+    const m = k.match(re);
+    if (!m) { next[k] = v; return; }
+    const idx = +m[1];
+    if (idx === removedIndex) return;
+    next[idx > removedIndex ? `${prefix}:${idx - 1}` : k] = v;
+  });
+  st.itemLoc = next;
+}
+
+function returnBuyItem(st, i) {
+  if (!(st.inventory || [])[i]) return;
+  st.inventory.splice(i, 1);
+  remapIndexedItemLoc(st, "buy", i);
+}
+
+function allInventoryItemRows(st) {
+  return startingTrappings(st).map((t, i) => ({
+    key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null, kind: "start",
+  })).concat((st.inventory || []).map((it, i) => ({
+    key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy",
+  }))).concat((st.customItems || []).map((it, i) => ({
+    key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap",
+    idx: i, kind: "custom",
+  })));
+}
+
+function pushDiscardedLog(st, entry) {
+  st.discardedLog = st.discardedLog || [];
+  st.discardedLog.push({ ...entry, at: Date.now() });
+}
+
+function discardGearByKey(st, key) {
+  const row = allInventoryItemRows(st).find((it) => it.key === key);
+  if (!row || (st.removedGear || []).includes(key)) return;
+  const loc = itemStorageLoc(st, key);
+  const entry = { kind: row.kind, name: row.name };
+  if (row.source) entry.source = row.source;
+  if (row.kind === "start") entry.startKey = key;
+  if (row.kind === "buy") { entry.price = row.price; entry.enc = row.enc; }
+  if (row.kind === "custom") { entry.enc = row.enc; entry.category = row.category; }
+  if (loc && loc !== "Carried") entry.storageLoc = loc;
+
+  st.removedGear = st.removedGear || [];
+  if (key.startsWith("start:")) {
+    if (!st.removedGear.includes(key)) st.removedGear.push(key);
+    if (st.itemLoc) delete st.itemLoc[key];
+    pushDiscardedLog(st, entry);
+    return;
+  }
+  if (key.startsWith("buy:")) {
+    const i = +key.slice(4);
+    const it = (st.inventory || [])[i];
+    if (!it) return;
+    if (it.price) st.gearDiscardedSpend = (st.gearDiscardedSpend || 0) + it.price;
+    st.inventory.splice(i, 1);
+    remapIndexedItemLoc(st, "buy", i);
+    pushDiscardedLog(st, entry);
+    return;
+  }
+  if (key.startsWith("custom:")) {
+    const i = +key.slice(7);
+    if (!(st.customItems || [])[i]) return;
+    st.customItems.splice(i, 1);
+    remapIndexedItemLoc(st, "custom", i);
+    pushDiscardedLog(st, entry);
+  }
+}
+
+function restoreDiscardedGear(st, index) {
+  const entry = (st.discardedLog || [])[index];
+  if (!entry) return;
+  st.removedGear = st.removedGear || [];
+  if (entry.kind === "start") {
+    const keys = new Set([entry.startKey]);
+    allInventoryItemRows(st).forEach((it) => {
+      if (it.kind === "start" && it.name === entry.name && (!entry.source || it.source === entry.source)) keys.add(it.key);
+    });
+    st.removedGear = st.removedGear.filter((k) => !keys.has(k));
+    const row = allInventoryItemRows(st).find((it) => keys.has(it.key));
+    if (row && entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[row.key] = entry.storageLoc;
+    }
+  } else if (entry.kind === "buy") {
+    st.inventory = st.inventory || [];
+    st.inventory.push({ name: entry.name, price: entry.price, enc: entry.enc });
+    if (entry.price) st.gearDiscardedSpend = Math.max(0, (st.gearDiscardedSpend || 0) - entry.price);
+    const newKey = `buy:${st.inventory.length - 1}`;
+    if (entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[newKey] = entry.storageLoc;
+    }
+  } else if (entry.kind === "custom") {
+    st.customItems = st.customItems || [];
+    st.customItems.push({ name: entry.name, enc: entry.enc, category: entry.category || "trap" });
+    const newKey = `custom:${st.customItems.length - 1}`;
+    if (entry.storageLoc) {
+      st.itemLoc = st.itemLoc || {};
+      st.itemLoc[newKey] = entry.storageLoc;
+    }
+  }
+  st.discardedLog.splice(index, 1);
 }
 function itemEnc(it) {
   if (it.enc != null && it.enc !== "") return parseInt(it.enc, 10) || 0;
@@ -317,14 +485,8 @@ function itemEnc(it) {
 }
 
 function inventoryItems(st) {
-  return startingTrappings(st).map((t, i) => ({
-    key: `start:${i}:${t.name}`, name: t.name, source: t.source, enc: encOf(t.name), price: null,
-  })).concat((st.inventory || []).map((it, i) => ({
-    key: `buy:${i}`, name: it.name, source: "Bought", enc: it.enc, price: it.price, idx: i, kind: "buy",
-  }))).concat((st.customItems || []).map((it, i) => ({
-    key: `custom:${i}`, name: it.name, source: "Custom", enc: it.enc, price: null, category: it.category || "trap",
-    idx: i, kind: "custom",
-  })));
+  const removed = new Set(st.removedGear || []);
+  return allInventoryItemRows(st).filter((it) => !removed.has(it.key));
 }
 
 function containerCarryCapacity(name) {
@@ -395,6 +557,9 @@ function computeEncumbrance(st) {
 function migrateState(st) {
   if (!st.moneyLost) st.moneyLost = [];
   if (!st.itemLoc) st.itemLoc = {};
+  if (!st.removedGear) st.removedGear = [];
+  if (st.gearDiscardedSpend == null) st.gearDiscardedSpend = 0;
+  if (!st.discardedLog) st.discardedLog = [];
   if (st.worn) {
     Object.entries(st.worn).forEach(([k, on]) => {
       if (on && !st.itemLoc[k]) st.itemLoc[k] = "Worn";

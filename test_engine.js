@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(__dirname, "WFRP5e_Character_Creator.html
 const dataJson = html.match(/const DATA = (.*?);<\/script>/s)[1];
 const ctx = { console, Math, JSON };
 vm.createContext(ctx);
-vm.runInContext(`const DATA = ${dataJson};\n${src("rules.js")}\n${src("engine.js")}\nthis.api = {DATA, SPECIES, SPECIES_ORDER, CHARS, careerFromRoll, parseChoice, newState, derive, findCareer, findTalent, findSkill, parsePrice, fmtMoney, gearIndex, findGear, startingTrappings, speciesFromRoll, randomTalentFromRoll};`, ctx);
+vm.runInContext(`const DATA = ${dataJson};\n${src("rules.js")}\n${src("engine.js")}\nthis.api = {DATA, SPECIES, SPECIES_ORDER, CHARS, careerFromRoll, parseChoice, newState, derive, findCareer, findTalent, findSkill, parsePrice, fmtMoney, gearIndex, findGear, startingTrappings, speciesFromRoll, randomTalentFromRoll, doomingFromRoll, canAddCreationTalent, creationTalentDuplicateIssues};`, ctx);
 const A = ctx.api;
 let fails = 0;
 const check = (cond, msg) => { if (!cond) { fails++; console.log("FAIL", msg); } };
@@ -22,7 +22,11 @@ for (const sid of A.SPECIES_ORDER) {
     if (c) check(c.species.includes(A.SPECIES[sid].short), `${name} not listed for ${sid}`);
   }
 }
-for (let r = 1; r <= 100; r++) { check(A.speciesFromRoll(r), `species roll ${r}`); check(A.randomTalentFromRoll(r), `talent roll ${r}`); }
+for (let r = 1; r <= 100; r++) {
+  check(A.speciesFromRoll(r), `species roll ${r}`);
+  check(A.randomTalentFromRoll(r), `talent roll ${r}`);
+  check(A.doomingFromRoll(r), `dooming roll ${r}`);
+}
 
 let unresolved = 0;
 for (const c of A.DATA.careers) for (const l of c.levels) for (const e of [...l.skills, ...l.talents, ...l.trappings]) {
@@ -54,6 +58,16 @@ check(D.move === 4, "move 4");
 check(D.chars.Int.current === 47, `Int with Savvy ${D.chars.Int.current} (expected 47)`);
 check(D.enc === 8, `enc ${D.enc} (expected 8 with Strong Back)`);
 check(D.status === "Brass 3", `status ${D.status}`);
+const dup = A.newState();
+Object.assign(dup, { species: "human", career: "Soldier", careerTalent: "Warrior Born" });
+dup.randomTalents = [{ name: "Warrior Born" }];
+check(A.creationTalentDuplicateIssues(dup).length > 0, "Warrior Born duplicate flagged");
+check(!A.canAddCreationTalent(dup, "Warrior Born", { skipRandomIndex: 1 }), "cannot add third WB slot");
+const stack = A.newState();
+Object.assign(stack, { species: "human", career: "Boatman", careerTalent: "Strong Back" });
+check(A.canAddCreationTalent(stack, "Strong Back", { skipCareer: true }), "Strong Back second allowed");
+stack.randomTalents = [{ name: "Strong Back" }];
+check(!A.canAddCreationTalent(stack, "Strong Back"), "Strong Back capped at 2");
 console.log("starting trappings:", A.startingTrappings(S).map((t) => t.name).join(", "));
 const missingGear = A.startingTrappings(S).filter((t) => !A.findGear(t.name)).map((t) => t.name);
 console.log("trappings without shop entry:", missingGear.join(", "));
